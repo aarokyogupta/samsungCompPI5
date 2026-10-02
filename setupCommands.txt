@@ -1,0 +1,265 @@
+# Raspberry Pi setup with Raspberry Pi OS Lite for the ICMIS ingestion stack
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y ffmpeg libsndfile1-dev v4l-utils libgl1 libglib2.0-0t64 libgstreamer1.0-0
+sudo apt install -y portaudio19-dev python3-dev
+sudo apt install -y libgeos-dev libproj-dev proj-bin
+sudo apt install -y spatialite-bin libsqlite3-mod-spatialite
+sudo apt install -y mosquitto mosquitto-clients
+
+# Optional: enable MQTT listener if needed
+sudo tee -a /etc/mosquitto/mosquitto.conf > /dev/null <<'EOF'
+listener 1883
+allow_anonymous true
+EOF
+sudo systemctl restart mosquitto
+
+mkdir -p ~/icmis ~/icmis/models ~/icmis/data/cameraTraps ~/icmis/data/droneUploads ~/icmis/data/archive ~/icmis/data/quarantine ~/icmis/data/acoustic ~/icmis/data/edna/incoming ~/icmis/data/edna/quarantine
+python3 -m venv ~/icmis/venv
+source ~/icmis/venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install aiomqtt pillow opencv-python pyyaml numpy scipy soundfile sounddevice pandas openpyxl biopython h3 watchdog onnxruntime aiosqlite
+
+# If you need to run from the project folder:
+# cd ~/path/to/samsungCompRaspPi
+# source ~/icmis/venv/bin/activate
+# python database/dbManager.py   # run first to apply schema migrations
+# python inputs/gpsTelemetry.py
+# python inputs/environmentalSensors.py
+# python inputs/camera.py
+# python inputs/acousticStream.py
+# python inputs/ednaParser.py
+# python processing/visionInference.py
+# python processing/acousticInference.py
+# python processing/geneticAnalytics.py
+
+# Copy the trained ONNX detector to ~/icmis/models/vision.onnx and configure
+# vision.classNames, vision.outputFormat, and threatClasses in config.yaml.
+# Run this command alongside python inputs/camera.py to process queued camera media.
+
+# Copy a compatible acoustic ONNX model to ~/icmis/models/acoustic.onnx and its
+# CSV label map to ~/icmis/models/acousticClasses.csv (headers: index,display_name).
+# Configure the model input dimensions and acoustic.inference.wildlifeClasses/
+# threatClasses in config.yaml; class labels must match the CSV.
+# Run python inputs/acousticStream.py and python processing/acousticInference.py
+# concurrently; window spectrograms are persisted for reliable cross-process processing.
+
+# Run inputs/ednaParser.py before processing/geneticAnalytics.py. Configure
+# edna.geneticAnalysis.generationTimeYearsBySpecies before
+# interpreting temporal effective-population-size estimates. The current eDNA
+# schema does not retain phased multilocus genotypes for LD-based Ne estimation.
+
+# Configure edna.approvedLoci and the actual studyAreaBounds in config.yaml
+# before processing samples; FASTA/FASTQ headers need species, collection_date,
+# latitude, longitude, and locus_name (or recognized aliases) as key=value fields.
+
+# Run python database/dbManager.py once before the other modules to apply the
+# numbered SQL files in database/schemaMigrations (named NNNNdescriptiveName.sql,
+# e.g. 0002addRangerAlerts.sql). Migration files must not contain BEGIN/COMMIT;
+# each file is wrapped in its own exclusive transaction and failures roll back.
+# Any process writing to geometry tables (e.g. acoustic_events) must load SpatiaLite.
+
+# database/schema.sql (species, telemetry, sensor_readings, detections,
+# genetics_records, risk_assessments) is applied automatically by dbManager.py
+# before numbered migrations; it re-runs only when its checksum changes. Changes to
+# columns of existing tables must be added as new schemaMigrations files.
+# Requires SQLite 3.38+ for STRICT tables and built-in JSON (check with:
+# python3 -c "import sqlite3; print(sqlite3.sqlite_version)"). Foreign keys are
+# enforced on dbManager connections; other raw writers must run PRAGMA foreign_keys = ON.
+# No additional pip packages are required for the schema.
+
+# database/models.py (SQLAlchemy 2.0 ORM + Pydantic v2 validation)
+pip install "sqlalchemy[asyncio]>=2.0" "pydantic>=2.7"
+# schema.sql owns all DDL; models.py never calls create_all. Run dbManager.py first,
+# then check mappings with: python database/models.py
+# createDatabaseEngine() loads SpatiaLite and enables foreign keys on every connection.
+# Geometry and *_epoch_ms columns are filled by the database, so call
+# await session.refresh(record) after committing telemetry or detections before reading them.
+# ORM sessions write directly; use Model.buildInsertStatement() with
+# DatabaseManager.executeWrite() to keep high-rate writes on the batched queue.
+
+# aiEngine/stateSchema.py (LangGraph GraphState + Pydantic sub-schemas)
+pip install "langgraph>=1.0"
+# langgraph pulls in langchain-core; sqlalchemy and pydantic come from the models step above.
+# Settings live under aiEngine: in config.yaml (domainWeights must sum to 1.0).
+# Run graph modules from the project root so config.yaml and database/models.py resolve.
+# Graph state scores are 0.0-1.0; buildSerializationPayload() scales them x100 for risk_assessments.
+# Wrap every node with @validatedNode("nodeName") - LangGraph skips reducers on a channel's
+# first write, so the wrapper is what validates it. Persist with
+# DatabaseManager.executeWrite(*buildPersistenceStatement(state)).
+
+# aiEngine/indicatorCalculator.py (six risk subscores for the Risk Scoring Engine)
+# No new pip packages - the scoring maths uses the Python standard library only.
+# database/schemaMigrations/0002habitatSpatialContext.sql applies automatically on the next
+# DatabaseManager start (adds species.juvenile_recruitment_ratio, habitat_zones, infrastructure_features).
+# Settings live under aiEngine: indicatorCalculator: in config.yaml. Subscores are 0 (healthy) to 100 (collapse)
+# internally and stored on the graph state's 0.0-1.0 scale.
+# Build the node with createIndicatorCalculatorNode(databaseManager=manager) and run from the project root.
+# aiEngine/graphWorkflow.py (LangGraph pipeline: aggregation -> subscores -> CRI/IPI -> narrative -> interventions)
+pip install "langgraph>=1.0" "langchain-core>=1.0" langchain-ollama h3
+# Optional local LLM on the Pi (install Ollama from https://ollama.com first): ollama pull llama3.2:3b
+# If the LLM is offline or llmProvider is "none", the narrative node falls back to a deterministic template.
+# Settings live under aiEngine: graphWorkflow: in config.yaml. Run from the project root:
+# python aiEngine/graphWorkflow.py (offline demo) or await runAssessment(scope, databaseManager=manager).
+
+# aiEngine/explainabilityPrompts.py (system prompt, marker template, JSON output schema, mitigation matrix, fallback)
+pip install "langchain-core>=1.0" pydantic h3
+# Already installed by the graphWorkflow step; this just confirms the versions.
+# Settings live under aiEngine: explainabilityPrompts: in config.yaml.
+# graphWorkflow.py imports the prompt automatically. Preview the prompt and fallback with:
+# python aiEngine/explainabilityPrompts.py
+
+# aiEngine/llmProvider.py - hardware checks, local edge LLM and cloud fallback
+pip install psutil python-dotenv httpx openai anthropic
+# Local llama.cpp route (prebuilt CPU wheel; on the Pi without a wheel use: CMAKE_ARGS="-DGGML_NATIVE=ON" pip install llama-cpp-python, needs cmake + build-essential)
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# Ollama route (default localBackend): install Ollama then pull the quantized 3B model
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull llama3.2:3b
+# Cloud keys go in a .env file in the project root (never commit it): OPENAI_API_KEY=... and/or ANTHROPIC_API_KEY=...
+python aiEngine/llmProvider.py
+
+# api/main.py - FastAPI server: settings, CORS, JSON error handling, frontend serving, lifespan, routers
+pip install fastapi "uvicorn[standard]" pydantic-settings
+# Settings live under api: in config.yaml; override any of them with ICMIS_* variables in the environment or .env,
+# e.g. ICMIS_DEBUG=true, ICMIS_PORT=8080, ICMIS_ALLOWED_ORIGINS=http://localhost:3000,https://dashboard.conservation-edge.local
+# Optional: ICMIS_API_KEY=... in .env makes routers with requireAuth: true (and /api/v1/system/hardware) need an X-API-Key header.
+# Run from the project root (docs at http://<pi-ip>:8000/docs, health at /api/v1/health):
+uvicorn api.main:app --host 0.0.0.0 --port 8000
+# or: python api/main.py (uses host/port from config.yaml; auto-reload when debug is true)
+
+# api/routesTelemetry.py - telemetry ingest queue, cursor pagination, SSE stream, cached time-bucket stats
+pip install fastapi h3 httpx
+# Already installed by earlier steps; this just confirms them. Settings live under telemetryApi: in config.yaml.
+# Migration 0004telemetryTimeIndexes.sql (time indexes) is applied automatically when the database starts.
+# Example requests once the API is running:
+# curl -X POST http://<pi-ip>:8000/api/v1/telemetry/ingest -H "Content-Type: application/json" -d "{\"reading_type\":\"gps\",\"sensor_id\":\"collar-1\",\"species_id\":1,\"animal_id\":\"ele-1\",\"timestamp\":\"2026-01-01T12:00:00Z\",\"latitude\":-1.3,\"longitude\":36.8}"
+# curl "http://<pi-ip>:8000/api/v1/telemetry/data?reading_type=gps&limit=100&min_lat=-2&max_lat=0&min_lon=36&max_lon=37"
+# curl -N "http://<pi-ip>:8000/api/v1/telemetry/stream?reading_type=gps"
+# curl "http://<pi-ip>:8000/api/v1/telemetry/stats?reading_type=environmental&bucket=hour&metric=water_ph"
+# In-process demo: python api/routesTelemetry.py
+
+# api/routesAnalytics.py - KPI summary cards, downsampled chart history, zone radar comparison, GeoJSON spatial clusters
+pip install fastapi h3 numpy httpx
+# Already installed by earlier steps; this just confirms them. Settings live under analyticsApi: in config.yaml.
+# Example requests once the API is running:
+# curl "http://<pi-ip>:8000/api/v1/analytics/summary?window_hours=24"
+# curl "http://<pi-ip>:8000/api/v1/analytics/historical?source=risk&bucket=auto&imputation=forward_fill"
+# curl "http://<pi-ip>:8000/api/v1/analytics/radar?limit=5"
+# curl "http://<pi-ip>:8000/api/v1/analytics/spatial?north=-1&south=-3&east=38&west=36&layer=gps&method=kmeans&clusters=10"
+# In-process demo: python api/routesAnalytics.py
+
+# api/routesReports.py - async trigger-and-poll LangGraph diagnostics: job queue, status polling, report library, detail hydration
+pip install fastapi h3 httpx
+# Already installed by earlier steps; this just confirms them. Settings live under reportsApi: in config.yaml.
+# Reports run on an in-process asyncio queue (no Celery/Redis needed on the Pi); one job runs at a time so the
+# LLM never competes with itself for RAM. Job metadata is in-memory, the report itself lands in risk_assessments.
+# Example requests once the API is running:
+# curl -X POST http://<pi-ip>:8000/api/v1/reports/generate -H "Content-Type: application/json" -d "{\"species_id\":1,\"latitude\":-1.3,\"longitude\":36.8,\"lookback_days\":30}"
+# curl "http://<pi-ip>:8000/api/v1/reports/status/<job_id>?redirect=false"
+# curl "http://<pi-ip>:8000/api/v1/reports?species=Loxodonta%20africana&threat_tier=CRITICAL&limit=20&offset=0"
+# curl "http://<pi-ip>:8000/api/v1/reports/1?include_sources=true"
+# curl "http://<pi-ip>:8000/api/v1/reports/jobs"
+# In-process demo: python api/routesReports.py
+
+# api/websocketManager.py - real-time alert fan-out: stateful connection registry, zone targeting, heartbeat, telemetry bridge
+pip install "uvicorn[standard]" fastapi h3 websockets
+# uvicorn[standard] already pulls in websockets; this just confirms it. Settings live under websocketApi: in config.yaml.
+# Alerts are fanned out in-process from the telemetry broadcaster (no Redis needed on the Pi); the same event that
+# feeds the SSE stream is translated into a priority-ranked alert and pushed to every matching socket.
+# Socket URL: ws://<pi-ip>:8000/api/v1/ws/alerts/<client_id>
+# Query parameters: ?token=<ICMIS_API_KEY> &client_type=web|ios|android|field|service &zone=<h3 cell> &min_priority=HIGH
+# CLIENT CONTRACT: the server sends {"type":"ping"} every 30s and the client MUST reply {"type":"pong"};
+# a socket that misses two pings in a row is treated as dead and flushed.
+# Control frames the client may send: {"type":"subscribe","zones":["87..."],"min_priority":"HIGH"},
+# {"type":"unsubscribe"}, {"type":"status"}, {"type":"ping"}
+# Browser example:
+# const ws = new WebSocket("ws://<pi-ip>:8000/api/v1/ws/alerts/dashboard1?client_type=web&min_priority=HIGH");
+# ws.onmessage = (e) => { const f = JSON.parse(e.data); if (f.type === "ping") ws.send('{"type":"pong"}'); else console.log(f); };
+# Publish an alert from any other service:
+# curl -X POST http://<pi-ip>:8000/api/v1/ws/alerts -H "Content-Type: application/json" -d "{\"priority\":\"CRITICAL\",\"event_type\":\"acoustic_anomaly\",\"classification\":\"gunshot_detected\",\"metrics\":{\"cri_score\":88,\"confidence\":0.94},\"location\":{\"lat\":-2.334,\"lng\":34.821}}"
+# curl "http://<pi-ip>:8000/api/v1/ws/status?include_connections=true"
+# In-process demo: python api/websocketManager.py
+
+# ---------------------------------------------------------------------------
+# webDashboard/ - Web Operations Dashboard (React SPA, Vite, Tailwind)
+# ---------------------------------------------------------------------------
+# Node.js 18+ is required. On Windows PowerShell blocks the npm shim, so call npm.cmd instead of npm.
+cd webDashboard
+npm install
+# npm 11 defers package install scripts, so esbuild ships without its native binary until it is approved:
+npm approve-scripts esbuild
+npm rebuild esbuild
+
+# Development server on http://localhost:3000 - proxies /api and /api/v1/ws to 127.0.0.1:8000
+npm run dev
+
+# Production bundle written to webDashboard/dist (this is what the Pi serves)
+npm run build
+npm run preview
+
+# Optional environment overrides - copy webDashboard/.env.example to webDashboard/.env
+# VITE_API_BASE_URL   leave blank to call the same origin that served the page; set to
+#                     http://<pi-ip>:8000 when the dashboard is hosted separately from the API
+# VITE_API_KEY        value of ICMIS_API_KEY; attached as X-API-Key on REST calls and as ?token= on the socket
+
+# api/main.py mounts config.yaml -> api.frontendDirectory ("webDashboard/dist") automatically, so once
+# "npm run build" has run the SPA is served from http://<pi-ip>:8000/ with no extra web server.
+# Confirm the mount: curl http://<pi-ip>:8000/api/v1/health   ->   "frontend_mounted": true
+# Routing uses HashRouter (http://<pi-ip>:8000/#/species/1) because the static mount has no SPA history fallback.
+
+# The dashboard holds one socket open to /api/v1/ws/alerts/<client_id> and answers the 30s
+# {"type":"ping"} with {"type":"pong"}; a missed pong is what triggers the exponential reconnect (1/2/4/8/16/30s).
+# Smoke-test the live alert toast while the dashboard is open in a browser:
+# curl -X POST http://<pi-ip>:8000/api/v1/ws/alerts -H "Content-Type: application/json" -d "{\"priority\":\"CRITICAL\",\"event_type\":\"acoustic_anomaly\",\"classification\":\"gunshot_detected\",\"metrics\":{\"cri_score\":88,\"confidence\":0.94},\"location\":{\"lat\":-2.334,\"lng\":34.821,\"zone\":\"Sector_4_North\"}}"
+
+# Map tiles come from tile.openstreetmap.org and need no API key; they are inverted into the dark
+# command-centre palette with a CSS filter, so an offline Pi simply shows the empty dark canvas.
+# ---------------------------------------------------------------------------
+# mobile_app/ - Cross-platform Flutter field application
+# ---------------------------------------------------------------------------
+# Flutter 3.22+ and Dart 3.3+ are required. Flutter installs the Android SDK
+# tooling for Android builds; Xcode is required for iOS builds on macOS.
+cd mobile_app
+flutter create . --platforms=android,ios --project-name=icmis_mobile --org=org.icmis
+flutter pub get
+
+# Run on a connected Android/iOS device or emulator
+flutter devices
+flutter run --dart-define=ICMIS_API_URL=http://<pi-ip>:8000/api/v1 --dart-define=ICMIS_API_KEY=<api-key>
+
+# Static checks and platform bundles
+flutter analyze
+flutter test
+flutter build apk --release --dart-define=ICMIS_API_URL=http://<pi-ip>:8000/api/v1
+flutter build appbundle --release --dart-define=ICMIS_API_URL=http://<pi-ip>:8000/api/v1
+# Run the iOS commands on macOS with Xcode installed:
+# flutter build ipa --release --dart-define=ICMIS_API_URL=http://<pi-ip>:8000/api/v1
+
+# Offline-first dependencies (Dio, Hive, Provider, WebSocket, flutter_map, fl_chart
+# and markdown_widget) are declared in mobile_app/pubspec.yaml; do not install them with pip.
+# The existing Python backend dependencies remain installed by the root setup block above.
+# Hive cache and the queued checklist writes are initialised before the first frame.
+# WebSocket clients must answer the server {"type":"ping"} with {"type":"pong"};
+# reconnects use 1, 2, 4, 8 and 16 second delays, capped at 30 seconds.
+# Offline map tiles can be pre-seeded by replacing the OSM TileLayer with a local MBTiles
+# provider on the target device; REST telemetry and reports still use the stale cache.
+# Remote settings + zero-touch autostart (run on the Pi from the project folder)
+# ruamel.yaml keeps config.yaml comments intact when the Settings page saves changes
+source ~/icmis/venv/bin/activate
+python -m pip install ruamel.yaml
+sudo apt install -y avahi-daemon   # lets apps reach the Pi at http://icmis.local:8000
+
+# One-time install of every systemd service/timer; prints the generated ICMIS_API_KEY - save it
+# Add --mqtt-lan to let LAN sensors publish to Mosquitto, --python PATH for a non-default venv
+sudo bash deploy/installServices.sh
+
+# From now on everything starts at power-on; confirm after a reboot
+sudo reboot
+curl http://icmis.local:8000/api/v1/health
+systemctl list-units 'icmis*' --all
+systemctl list-timers 'icmis*'
+journalctl -u 'icmis*' -f
+
+# Then open http://icmis.local:8000/#/settings (or Pi Settings in the mobile app),
+# paste the ICMIS_API_KEY under Connection, and change settings remotely - they are applied on the Pi automatically
+# Re-run installServices.sh after pulling updates that change deploy/ files

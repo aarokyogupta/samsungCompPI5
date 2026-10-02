@@ -1,0 +1,76 @@
+/* Leaflet and KaTeX ship their own stylesheets; both are pulled in here so Vite bundles them */
+@import "leaflet/dist/leaflet.css";
+@import "katex/dist/katex.min.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html,
+    body,
+    #root {
+        @apply h-full;
+    }
+
+    body {
+        @apply bg-canvas text-ink font-sans antialiased;
+    }
+
+    /* Thin scrollbars keep the live feed from eating horizontal space on 1080p command screens */
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        @apply rounded-full bg-hairline;
+    }
+}
+
+@layer components {
+    .panel {
+        @apply rounded-2xl border border-hairline bg-panel shadow-panel;
+    }
+
+    .panelRaised {
+        @apply rounded-2xl border border-hairline bg-panelRaised;
+    }
+
+    .eyebrow {
+        @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-muted;
+    }
+
+    .metricValue {
+        @apply font-mono text-3xl font-semibold tabular-nums text-ink;
+    }
+
+    .pill {
+        @apply inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide;
+    }
+
+    .fieldInput {
+        @apply w-full rounded-lg border border-hairline bg-panelRaised px-3 py-2 text-sm text-ink outline-none transition focus:border-accent/60;
+    }
+}
+
+/* The Leaflet tile canvas defaults to a white backdrop, which flashes hard in a dark room */
+.leaflet-container {
+    background: #08120f;
+}
+
+/* Keyless OSM tiles ship light, so they are inverted into the command-centre palette client-side */
+.leaflet-tile-pane {
+    filter: invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.86) saturate(0.7);
+}
+
+/* Markers and the attribution sit above the tile pane, so they keep their real colours */
+.leaflet-container .leaflet-control-attribution {
+    background: rgba(8, 18, 15, 0.8);
+    color: #9bb1a6;
+}
+
+/* KaTeX inherits the body colour so Ne / He notation stays legible on the dark panels */
+.katex {
+    color: inherit;
+}

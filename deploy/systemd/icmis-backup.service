@@ -1,0 +1,13 @@
+# Nightly SpatiaLite snapshot; started only by icmis-backup.timer
+[Unit]
+Description=ICMIS database backup
+After=icmis-db.service
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@ROOT@
+EnvironmentFile=-@ROOT@/.env
+ExecStart=@PYTHON@ deploy/backupDatabase.py
+Nice=10
+IOSchedulingClass=idle

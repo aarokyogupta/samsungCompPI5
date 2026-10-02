@@ -1,0 +1,14 @@
+# Scheduled LangGraph risk reports; started only by icmis-assessment.timer
+[Unit]
+Description=ICMIS scheduled risk assessment
+Wants=icmis-api.service
+After=icmis-api.service
+
+[Service]
+Type=oneshot
+User=@USER@
+WorkingDirectory=@ROOT@
+EnvironmentFile=-@ROOT@/.env
+# Give the API time to finish starting when this runs straight after boot
+ExecStartPre=/bin/sleep 60
+ExecStart=@PYTHON@ deploy/scheduledAssessment.py

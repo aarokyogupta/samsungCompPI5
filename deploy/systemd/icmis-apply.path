@@ -1,0 +1,11 @@
+# Watches for the request the settings API drops when the user presses Apply
+[Unit]
+Description=Watch for ICMIS settings apply requests
+PartOf=icmis.target
+
+[Path]
+PathExists=@STATE_DIR@/applyRequest.json
+Unit=icmis-apply.service
+
+[Install]
+WantedBy=icmis.target

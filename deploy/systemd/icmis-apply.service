@@ -1,0 +1,14 @@
+# Root helper: restarts services, rewrites timers and sets hostname/timezone from config.yaml
+[Unit]
+Description=Apply saved ICMIS settings
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+Environment=ICMIS_ROOT=@ROOT@
+Environment=ICMIS_STATE_DIR=@STATE_DIR@
+Environment=ICMIS_USER=@USER@
+Environment=PYTHONDONTWRITEBYTECODE=1
+WorkingDirectory=@ROOT@
+ExecStart=@PYTHON@ deploy/applySettings.py
+TimeoutStartSec=180

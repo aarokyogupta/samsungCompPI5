@@ -1,0 +1,8 @@
+# Everything ICMIS runs continuously; enabled at boot by deploy/installServices.sh
+[Unit]
+Description=ICMIS conservation monitoring stack
+Wants=network-online.target mosquitto.service icmis-db.service icmis-api.service icmis-apply.path
+After=network-online.target
+
+[Install]
+WantedBy=multi-user.target

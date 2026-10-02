@@ -1,0 +1,484 @@
+Project Architecture & Directory Topology
+
+To implement the Integrated Conservation Monitoring & Intelligence System (ICMIS) on a Raspberry Pi 5 running Raspberry Pi OS Lite,
+the software stack is separated into three primary tiers:
+
+Edge Intelligence & Processing Backend (Python-based asynchronous backend leveraging LangGraph, FastAPI, and edge ML runtimes).
+Web Operations Dashboard (Modern Single-Page Application served directly from the Pi).
+Cross-Platform Mobile Application (Single Flutter codebase targeting both Android and iOS).
+
+Directory Tree Overview
+
+icmis-edge-system/
+├── config/
+│   ├── settings.py
+│   └── threshold_rules.yaml
+├── database/
+│   ├── db_manager.py
+│   ├── schema.sql
+│   └── models.py
+├── ingestion/
+│   ├── gps_telemetry.py
+│   ├── environmental_sensors.py
+│   ├── camera_stream.py
+│   ├── acoustic_stream.py
+│   └── edna_parser.py
+├── processing/
+│   ├── vision_inference.py
+│   ├── acoustic_inference.py
+│   └── genetic_analytics.py
+├── ai_engine/
+│   ├── state_schema.py
+│   ├── indicator_calculator.py
+│   ├── graph_workflow.py
+│   ├── explainability_prompts.py
+│   └── llm_provider.py
+├── api/
+│   ├── main.py
+│   ├── routes_telemetry.py
+│   ├── routes_analytics.py
+│   ├── routes_reports.py
+│   └── websocket_manager.py
+├── web_dashboard/
+│   ├── public/
+│   └── src/
+│       ├── components/
+│       ├── pages/
+│       ├── services/
+│       └── App.js
+├── deployment/
+│   ├── argon_fan_setup.sh
+│   ├── systemd/
+│   │   └── icmis.service
+│   └── hostapd_ap_setup.sh
+└── mobile_app/
+    ├── pubspec.yaml
+    └── lib/
+        ├── main.dart
+        ├── models/
+        ├── screens/
+        ├── services/
+        └── widgets/
+
+Hardware Setup & Operating System Configuration
+
+Argon One V5 Case Configuration
+
+Because Raspberry Pi OS Lite has no graphical desktop, power management and fan control for the Argon One V5 case must be 
+managed entirely via background daemons.
+
+Cooling & Thermal Management: 
+The active cooling script reads processor temperatures via system thermal zone files (/sys/class/thermal/) and maps fan speeds 
+to specific temperature ranges to prevent thermal throttling during heavy local AI inference (such as computer vision and 
+acoustic classification).
+
+Power & Infrared Interfacing: 
+The power management driver interfaces with the Argon Case board via I2C (/dev/i2c-1), mapping soft-shutdown signal pulses 
+to system shutdown routines so the power button triggers graceful system halting.
+
+System Dependencies & Native Libraries
+
+The headless operating system requires low-level system packages to process media feeds and spatial calculations:
+
+FFmpeg & LibSndFile: 
+Native audio decoding libraries required for processing multi-format hydrophone and microphone soundscapes.
+
+OpenCV Native Dependencies: 
+Hardware-accelerated image decoding and video stream decoding libraries (V4L2) that allow low-latency video capture from incoming 
+camera streams.
+
+GEOS & PROJ Libraries: Spatial mapping and cartographic projection libraries needed to process latitude and longitude transformations, 
+geo-fencing, and habitat intersection math.
+
+Edge System Files & Software Components
+
+1. Ingestion Layer (ingestion/)
+
+ingestion/gps_telemetry.py
+
+Role: Acts as the entry point for real-time and buffered tracking data arriving from animal GPS tags, Argos satellite modems, and 
+marine biologgers.
+
+Logic: Accepts incoming HTTP webhooks or MQTT payload streams containing device identification, timestamp, latitude, longitude, 
+altitude, and physiological data (heart rate, body temperature). It performs spatial validation, filters out impossible GPS 
+telemetry spikes (speed anomalies), normalizes coordinate projections to WGS84, and formats the record for ingestion into the 
+database.
+
+ingestion/environmental_sensors.py
+
+Role: Processes continuous stream data from local weather stations, in-situ water probes, and pollution monitors.
+
+Logic: Parses continuous streams measuring pH, dissolved oxygen, water turbidity, ambient temperature, humidity, and rainfall. It 
+performs range checks to eliminate sensor drift anomalies, flags values outside safe operating bounds, and computes rolling hourly 
+moving averages to smooth out raw sensor noise.
+
+ingestion/camera_stream.py
+
+Role: Manages continuous or event-driven image streams from fixed camera traps, drone passes, and infrared sensors.
+
+Logic: Opens stream sockets or monitors designated local drop directories for new images or video frames. It standardizes 
+resolutions, converts color spaces (BGR to RGB), extracts EXIF spatial-temporal metadata, and enqueues frame buffers into an 
+in-memory queue for edge computer vision inference.
+
+ingestion/acoustic_stream.py
+
+Role: Ingests raw audio files or live hydrophone/microphone feeds.
+
+Logic: Reads audio buffers, converts inputs into standard single-channel (mono) float PCM arrays at standardized sample rates 
+(typically 16kHz or 32kHz), cuts long streams into uniform time windows (e.g., 3-second segments), and calculates short-time 
+Fourier transform (STFT) spectrogram representations.
+
+ingestion/edna_parser.py
+
+Role: Ingests field assay spreadsheets or lab-generated genetic sequences from environmental DNA sampling and blood/tissue samples.
+
+Logic: Parses uploaded tabular datasets containing locus profiles, allele counts, sample coordinates, and sample collection dates. 
+It maps genetic sample IDs to spatial grids, verifies data integrity against expected locus lists, and formats the raw genetic 
+sequence tables for population genetics analysis.
+
+2. Edge Processing & Feature Extraction (processing/)
+
+processing/vision_inference.py
+
+Role: Handles localized deep learning inference for visual data using lightweight runtime engines (ONNX Runtime or TFLite optimized 
+for Pi 5 ARM Cortex-A76 cores).
+
+Logic: Takes image frame buffers from the queue and runs object detection models. It identifies species, counts individuals per 
+frame, assesses bounding box sizes to track herd sizes, calculates confidence scores, and outputs structured JSON metadata 
+containing detected species names, bounding coordinates, and count metrics.
+
+processing/acoustic_inference.py
+
+Role: Conducts acoustic classification on audio spectrograms.
+
+Logic: Feeds preprocessed spectrogram matrices into an audio classification network (such as YAMNet or BirdNET fine-tuned for 
+conservation). It evaluates vocalization probabilities for target wildlife (calls, echolocation) and threat indicators (gunshots, 
+chainsaws, vehicle engines, vessel propellers), logging identified acoustic signatures along with temporal timestamps.
+
+processing/genetic_analytics.py
+
+Role: Performs classical population genetics calculations on ingested eDNA and tissue sample datasets.
+
+Logic: Calculates population-level metrics mathematically:
+
+Expected Heterozygosity (H_e): Computed using H_e = 1 - sum (p_i)^2, where p_i represents the frequency of the ith allele at a given 
+locus across sample sets.
+
+Allelic Richness: Evaluates the mean number of unique alleles per locus across sample sets, normalized by sample size using 
+rarefaction techniques.
+
+Effective Population Size (N_e): Approximates N_e using linkage disequilibrium or temporal variance methods. If N_e < 50, the file 
+flags critical inbreeding depression risk.
+
+3. Data Storage & Schema Design (database/)
+
+database/db_manager.py
+
+Role: Provides an asynchronous interface for reading and writing data to local storage (SQLite or DuckDB).
+
+Logic: Manages connection pools, handles concurrent writes from ingestion pipelines without locking the database, executes schema 
+migrations, and provides specialized geospatial time-series queries (e.g., retrieval of all threats detected within a 50km radius 
+over the past 30 days).
+
+database/schema.sql
+
+Role: Defines the structural relational tables required for multi-modal conservation datasets.
+
+Logic: Creates tables for:
+
+species: Metadata, baseline population norms, threshold limits.
+telemetry: Geospatial points, time, animal ID, physiological metrics.
+sensor_readings: Water quality, climate metrics, chemical parameters.
+detections: Vision and acoustic detection events, confidence scores, raw asset locations.
+genetics_records: Locus sample assays, $H_e$ values, $N_e$ metrics.
+risk_assessments: Calculated CRI scores, IPI metrics, momentum values, structured narrative reports.
+
+database/models.py
+
+Role: Offers Object-Relational Mapping (ORM) classes representing entities in the database.
+
+Logic: Defines data structures for Python operations, handling serialization into JSON objects for API responses and validation 
+of incoming data fields before database insertion.
+
+4. AI Engine & Risk Assessment (ai_engine/)
+
+The core decision system uses LangGraph to model the risk pipeline as a deterministic, multi-step state graph.
+
+       [ Data Aggregation Node ]
+                  │
+                  ▼
+     [ Indicator Calculator Node ]
+                  │
+                  ▼
+      [ Risk Scoring Engine ] 
+    (Computes CRI & IPI via math)
+                  │
+                  ▼
+   [ Explainability & Narrative Node ]
+    (LangChain / LLM Execution)
+                  │
+                  ▼
+     [ Intervention Routing Node ]
+
+ai_engine/state_schema.py
+
+Role: Defines the centralized State object passed through the LangGraph workflow.
+
+Logic: Specifies the schema holding all intermediate calculations, raw indicator parameters, normalized subscores, mathematical 
+outcomes, and final natural language report blocks.
+
+ai_engine/indicator_calculator.py
+
+Role: Computes subscores (0-100) for the six core conservation domains defined in the system specification:
+
+Population Health Subscore (S_pop): Evaluates count trends, age-class ratios from camera traps, and mortality data against baseline
+norms.
+
+Habitat Condition Subscore (S_hab): Evaluates range loss metrics, fragmentation indices, and environmental sensor deviations.
+
+Threat Pressure Subscore (S_thr): Aggregates gunshot sound events, illegal vessel detections, and poaching reports.
+
+Climate Stress Subscore (S_cli): Measures deviations of ambient sand/water temperatures and extreme weather frequencies against 
+10-year baselines.
+
+Genetic Resilience Subscore (S_gen): Inverts calculated heterozygosity H_e and effective population size N_e; lower diversity 
+results in higher risk scores.
+
+Behavioral Stability Subscore (S_beh): Computes migration route retention rates and presence of elder matriarchs/adults within 
+social groups.
+
+ai_engine/graph_workflow.py
+
+Role: Constructs and executes the LangGraph StateGraph.
+
+Logic: Coordinates execution through distinct processing nodes:
+
+Node 1 (Aggregation): Queries the database for all spatial-temporal data within the requested analysis window.
+
+Node 2 (Indicator Normalization): Runs indicator_calculator.py to produce standardized subscores (S_j ∈ [0, 100]).
+
+Node 3 (Mathematical Synthesis): Calculates the composite Conservation Risk Index (CRI) using empirical domain weights (w_j):
+CRI = sum_{j=1}^6 (w_j * S_j). Calculates Risk Momentum ((Delta CRI) / (Delta t)) using historical assessments. Computes 
+Intervention Priority Index (IPI) by scaling CRI with momentum factors and actionable feasibility multipliers.
+
+Node 4 (Explainable Generation): Executes an LLM query using LangChain to synthesize calculated parameters into structured 
+human-readable diagnostic text.
+
+Node 5 (Intervention Mapping): Maps the final $CRI$ score to specific action levels (Level 1: Minimal Risk to Level 5: Critical 
+Risk) and formats mandatory intervention steps.
+
+ai_engine/explainability_prompts.py
+
+Role: Stores structured system prompts and template definitions for LLM generation.
+
+Logic: Directs the LLM to format output strictly based on calculated values without hallucinating numerical figures. 
+Enforces structural output formatting: primary threat drivers, percentage contributions to overall risk, genetic status 
+breakdown, behavioral loss impact, and specific mitigation recommendations (e.g., genetic rescue, neural conservation training).
+
+ai_engine/llm_provider.py
+
+Role: Abstracts the execution of language model calls.
+
+Logic: Tries local lightweight quantization models running on the Pi 5 CPU (such as Llama-cpp-python or Ollama endpoints). 
+If offline or under-powered, it can fall back to remote cloud LLM APIs (OpenAI, Anthropic) when network connectivity is available.
+
+5. Backend API & Communication (api/)
+
+api/main.py
+
+Role: Main application entry point running the FastAPI web server.
+
+Logic: Instantiates the application, sets up Cross-Origin Resource Sharing (CORS) rules to allow local app connections, mounts 
+static file directories for the web front-end, initializes database connection pools on startup, and exposes all routing endpoints.
+
+api/routes_telemetry.py
+
+Role: REST endpoints for receiving and retrieving raw sensor streams.
+
+Logic: Accepts incoming telemetry payloads, triggers immediate ingestion routines, and provides paginated data retrieval endpoints 
+for real-time map plots and sensor graphs.
+
+api/routes_analytics.py
+
+Role: REST endpoints serving processed indicators and visual metric structures.
+
+Logic: Computes and returns aggregated statistical tables, historical subscore breakdowns, radar chart datasets, and spatial cluster 
+maps formatted directly for front-end visualizers.
+
+api/routes_reports.py
+
+Role: REST endpoints for triggering and fetching AI risk analyses.
+
+Logic: Exposes endpoints to trigger new LangGraph executions on demand or fetch past diagnostic reports by species, date range, or
+threat tier.
+ 
+api/websocket_manager.py
+
+Role: Real-time event broadcasting service.
+
+Logic: Maintains active WebSocket connection channels with connected Web dashboards, Android clients, and iOS clients. When 
+incoming streams trigger high-risk alerts (e.g., gunshot detected, CRI > 80), it pushes immediate JSON notifications to all 
+connected clients without requiring polling.
+
+Web Operations Dashboard (web_dashboard/)
+
+The web dashboard is a Single-Page Application (SPA) designed for desktop browsers connected to the Pi's network.
+
+Structure & Architecture
+
+src/App.js: Root component setting up application routing, theme configurations, and top-level WebSocket listeners.
+
+src/services/api.js: Centralized HTTP and WebSocket client abstraction that routes network requests to the Pi's FastAPI backend.
+
+src/pages/Dashboard.js: Main operational overview displaying current system status, summary alert counters, and system health metrics.
+
+src/pages/SpeciesDetail.js: Deep-dive analytical view for specific populations showing:
+
+Real-time geospatial tracking maps (using Leaflet/Mapbox libraries).
+Historical $CRI$ line charts and short-term projections (using Chart.js/Recharts).
+Subscore radar charts showing the balance across Population, Habitat, Threat, Climate, Genetics, and Behavior metrics.
+
+src/pages/RiskReports.js: View rendering AI-generated explainable reports, detailing exact root-cause breakdowns, H_e / N_e metrics, 
+and interactive Level 1-5 intervention action lists.
+
+Cross-Platform Mobile Application (mobile_app/)
+
+The mobile app is built using Flutter (Dart), compiling natively to both Android (.apk/.aab) and iOS (.ipa) from a single codebase.
+
+mobile_app/
+├── lib/
+│   ├── main.dart
+│   ├── models/
+│   │   ├── risk_report.dart
+│   │   └── telemetry_point.dart
+│   ├── services/
+│   │   ├── api_service.dart
+│   │   └── websocket_service.dart
+│   ├── screens/
+│   │   ├── home_screen.dart
+│   │   ├── map_screen.dart
+│   │   ├── analytics_screen.dart
+│   │   └── report_detail_screen.dart
+│   └── widgets/
+│       ├── score_card.dart
+│       ├── radar_chart_widget.dart
+│       └── alert_banner.dart
+
+Module Breakdown & Component Logic
+
+lib/main.dart
+
+Role: Application entry point. Initializes app settings, sets up state management providers, initializes background notification 
+handlers, and launches the main navigation framework.
+
+lib/services/api_service.dart & websocket_service.dart
+
+Role: Mobile network data layer.
+
+Logic: Handles network connections to the Pi's IP address (either via local Wi-Fi, hotspot connection, or remote cloud relay). 
+Manages local database caching (using Hive or SQLite) so field agents can view cached maps and reports when offline out of range 
+of the Pi.
+
+lib/screens/home_screen.dart
+
+Role: Mobile home screen optimized for touch interaction.
+
+Logic: Displays quick-reference list of monitored species sorted by $CRI$ severity. Highlights high-risk alerts ($CRI > 80$) at the 
+top with clear visual escalation colors (Red for Level 5, Orange for Level 4, Yellow for Level 3).
+
+lib/screens/map_screen.dart
+
+Role: Mobile geospatial viewer.
+Logic: Renders vector maps overlaid with recent animal GPS fixes, camera trap locations, and environmental sensor nodes. Uses 
+color-coded polyline tracks to show animal movements and shaded polygons to display habitat fragmentation.
+
+lib/screens/analytics_screen.dart
+
+Role: Mobile data visualization hub.
+
+Logic: Renders touch-optimized visual metrics:Interactive trend lines showing $CRI$ momentum over time.Touch-responsive radar charts 
+showing relative contributions of subscores.Genetic health indicators (H_e historical degradation charts).
+
+lib/screens/report_detail_screen.dart
+
+Role: Full view for AI-generated diagnostic reports.
+
+Logic: Parses and displays narrative AI explanations. Highlights primary causal drivers (e.g., "50% decline in forest cover", 
+"H_e = 0.15 indicating severe inbreeding"), displays recommended Intervention Priority Indices (IPI), and provides action 
+checklists based on the 5-tier intervention matrix.
+
+Data Analysis & Intervention Escalation Workflow
+
+[ Sensor Inputs ] 
+   │ (GPS, Sensors, Camera, Audio, eDNA)
+   ▼
+[ Local Edge Ingestion & Feature Extraction ]
+   │ (YOLO Vision Counts, Audio Classifications, He / Ne Calculations)
+   ▼
+[ Indicator Subscore Calculation ]
+   │ (Population, Habitat, Threat, Climate, Genetics, Behavior -> 0-100 scale)
+   ▼
+[ Composite Risk Synthesis ]
+   │ (Calculate overall CRI: 0-100, calculate Momentum ΔCRI/Δt, calculate IPI)
+   ▼
+[ LangGraph & LangChain Narrative Engine ]
+   │ (Generate Causal Diagnosis & Root-Cause Explanations)
+   ▼
+[ System Escalation Assignment ]
+   ├── CRI < 20  => Level 1 (Low Risk - Routine Monitoring)
+   ├── 20-40     => Level 2 (Moderate Risk - Targeted Patrols)
+   ├── 40-60     => Level 3 (High Risk - Habitat Restoration & Assays)
+   ├── 60-80     => Level 4 (Very High Risk - Captive Breeding Prep)
+   └── CRI > 80  => Level 5 (Critical - Emergency Genetic Rescue & Interventions)
+   ▼
+[ Multi-Channel Synchronization ]
+   ├── Local SQLite / DuckDB Archival Storage
+   ├── WebSocket Broadcast to Web Operations Dashboard
+   └── Real-Time Alert Push to Android & iOS Mobile Applications
+
+Multi-Modal Data Capture: Raw data streams (GPS fixes, environmental readings, image files, audio segments, genetic sequence tables) 
+enter via ingestion/.
+
+Local Feature Processing: processing/ extracts metrics (e.g., species count per frame, identified gunshot audio events, computed 
+heterozygosity H_e).
+
+Subscore Normalization: ai_engine/indicator_calculator.py normalizes raw parameters into six domain subscores (S_j ∈ [0, 100]).
+
+Mathematical Synthesis: ai_engine/graph_workflow.py computes composite $CRI$ ($0\text{--}100$), evaluates Risk Momentum 
+(ΔCRI/Δt), and computes the Intervention Priority Index ($IPI$).
+
+Narrative Generation: ai_engine/explainability_prompts.py feeds calculated numbers into the LLM chain to write human-readable 
+diagnostic text detailing primary risk factors.
+
+Action Escalation: System assigns operational escalation level (Level 1 to Level 5) matching defined thresholds.
+
+Broadcast & Rendering: FastAPI pushes real-time JSON payloads via WebSockets to connected browsers (Web Dashboard) and mobile 
+devices (Android and iOS apps built via Flutter), rendering maps, trend lines, subscore charts, and narrative reports.
+
+Deployment & Field Execution Setup 
+
+1. Systemd Service Setup (deployment/systemd/icmis.service)
+
+To ensure the Pi operates headlessly in field environments, a system service file manages automatic startup:
+
+Automatically executes on boot after network targets are ready.
+Runs the FastAPI server (api/main.py) via an asynchronous ASGI server (Uvicorn).
+Configures automatic restarts on system failures and directs output logs to the system journal logger.
+
+2. Field Network Hotspot (deployment/hostapd_ap_setup.sh)
+
+When operating in remote wilderness regions without cell coverage or external Wi-Fi:
+
+The script configures the Pi 5's onboard wireless adapter as a standalone Wireless Access Point (Access Point mode via hostapd and 
+dnsmasq). 
+
+Generates a local Wi-Fi network. Field agents carrying Android or iOS devices connect directly to this Wi-Fi network to access the 
+web dashboard and sync data with the mobile app without requiring an internet connection.
+
+3. Cross-Platform Mobile Compilation Process
+
+Android Target: Compiled using the Flutter toolchain targeting ARM64 Android devices, producing a standalone installable APK package 
+or Android App Bundle (AAB).
+
+iOS Target: Compiled via Xcode toolchains on macOS, generating an iOS Application Archive (IPA) that can be deployed via Apple 
+TestFlight or installed directly to field iOS devices using developer provisioning profiles.

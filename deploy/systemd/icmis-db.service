@@ -1,0 +1,18 @@
+# Creates or migrates the SpatiaLite database before anything else touches it
+[Unit]
+Description=ICMIS database preparation
+After=local-fs.target
+PartOf=icmis.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=@USER@
+WorkingDirectory=@ROOT@
+EnvironmentFile=-@ROOT@/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@PYTHON@ database/dbManager.py
+TimeoutStartSec=300
+
+[Install]
+WantedBy=icmis.target

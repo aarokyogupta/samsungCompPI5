@@ -1,0 +1,511 @@
+mqtt:
+  brokerHost: "localhost"
+  port: 1883
+
+  topics:
+    environmental: "icmis/environment/#"
+    telemetry: "icmis/telemetry/#"
+
+storage:
+  databasePath: "~/icmis/inputs.db"
+  spatialiteExtension: "mod_spatialite.so"
+
+database:
+  readPoolSize: 3
+  busyTimeoutMs: 5000
+  writeQueueSize: 10000
+  writeBatchIntervalMs: 500
+  writeBatchSize: 500
+  lockRetryInitialDelaySec: 0.05
+  lockRetryMaxDelaySec: 5.0
+  lockRetryAttempts: 10
+  # Relative paths are resolved from the project folder.
+  schemaFile: "database/schema.sql"
+  migrationsDirectory: "database/schemaMigrations"
+  # Leave blank to apply every migration file.
+  targetSchemaVersion:
+  threatRadiusMeters: 50000.0
+  threatLookbackDays: 30.0
+
+filePaths:
+  cameraTraps: "~/icmis/data/cameraTraps"
+  droneUploads: "~/icmis/data/droneUploads"
+  quarantine: "~/icmis/data/quarantine"
+
+validation:
+  batteryLowThreshold: 30.0
+
+emaAlphas:
+  waterTurbidity: 0.2
+  waterVelocity: 0.25
+  waterPh: 0.1
+  waterSalinity: 0.05
+  waterOxygenConcentration: 0.15
+  waterTemperature: 0.05
+  temperature: 0.1
+  humidity: 0.1
+  airQualityLevel: 0.15
+  pollutantConcentrationLevel: 0.2
+
+camera:
+  pollingIntervalSec: 0.5
+
+vision:
+  modelPath: "~/icmis/models/vision.onnx"
+  inputWidth: 640
+  inputHeight: 640
+  inputLayout: "NCHW"
+  outputFormat: "auto"
+  confidenceThreshold: 0.45
+  iouThreshold: 0.5
+  inferenceThreads: 3
+  pollingIntervalSec: 0.5
+  inferenceQueueSize: 16
+  inferenceLeaseSec: 600
+  herdProximityPixels: 100.0
+  videoSampleIntervalSec: 1.0
+  videoMaxFrames: 300
+  # Set names in the same order as the trained model's class IDs.
+  classNames: []
+  # Populate only with labels that should trigger high-priority notifications.
+  threatClasses: []
+  # Integer/quantized ONNX models require the model's actual input quantization scale.
+  inputScale:
+  inputZeroPoint: 0
+
+acoustic:
+  inputDirectory: "~/icmis/data/acoustic"
+  # Put each recording in a subfolder named after its device_id.
+  defaultDeviceID: "unknown"
+  pollingIntervalSec: 1.0
+  targetSampleRate: 16000
+  segmentDurationSec: 3.0
+  overlapSec: 1.0
+  nFft: 1024
+  hopLength: 256
+  melBands: 64
+  workQueueSize: 16
+  inferenceQueueSize: 100
+  liveEnabled: false
+  liveDeviceID: "unknown"
+  liveInputSampleRate: 48000
+  liveChannels: 1
+  liveBufferChunks: 32
+  inference:
+    modelPath: "~/icmis/models/acoustic.onnx"
+    classMapPath: "~/icmis/models/acousticClasses.csv"
+    inputFrames: 96
+    inputMelBands: 64
+    inputLayout: "NCHW"
+    inferenceThreads: 2
+    inferenceQueueSize: 32
+    pollingIntervalSec: 0.5
+    inferenceLeaseSec: 600
+    confidenceThreshold: 0.65
+    threatConfidenceThreshold: 0.4
+    debounceWindowSec: 4.0
+    # Match these names exactly to the model class map (case-insensitive).
+    wildlifeClasses: []
+    threatClasses: []
+    # Optional class-specific thresholds override the category defaults.
+    classThresholds: {}
+    # Quantized models require the input scale from the model's quantization metadata.
+    inputScale:
+    inputZeroPoint: 0
+  # Configure each deployed microphone or hydrophone here.
+  # - deviceID: "hydrophone-01"
+  #   locationID: "site-01"
+  #   latitude: 51.5000
+  #   longitude: -0.1200
+  #   altitude: 0.0
+  devices: []
+
+edna:
+  projectID: "default-project"
+  inputDirectory: "~/icmis/data/edna/incoming"
+  quarantineDirectory: "~/icmis/data/edna/quarantine"
+  pollingIntervalSec: 1.0
+  inferenceQueueSize: 100
+  h3Resolution: 7
+  maxAlleleCount: 2
+  # Replace these global limits with the actual study-area bounding box.
+  studyAreaBounds:
+    minLatitude: -90.0
+    maxLatitude: 90.0
+    minLongitude: -180.0
+    maxLongitude: 180.0
+  # Replace these examples with the approved loci for each study species.
+  approvedLoci: {}
+  # Example:
+  # approvedLoci:
+  #   Salmo salar:
+  #     - COI
+  #     - 12S
+  geneticAnalysis:
+    timeBin: "year"
+    analysisIntervalSec: 3600.0
+    minimumLocusSamples: 2
+    criticalNeThreshold: 50.0
+    vulnerableNeThreshold: 500.0
+    # Species-specific values take precedence over the optional global fallback.
+    generationTimeYears:
+    generationTimeYearsBySpecies: {}
+    alertQueueSize: 100
+
+aiEngine:
+  stateSchemaVersion: "1.0"
+  modelVersion: "icmis-risk-engine-1.0"
+  # Risk momentum is dCRI/dt measured across this many days.
+  momentumWindowDays: 30.0
+  # Slopes within +/- this value (0.0-1.0 CRI units per day) are treated as STABLE.
+  momentumStableTolerancePerDay: 0.001
+  # Falls back to edna.geneticAnalysis.criticalNeThreshold when omitted.
+  criticalNeThreshold: 50.0
+  # CRI = sum(w_j * S_j); weights must cover all six domains and sum to 1.0.
+  domainWeights:
+    population: 0.25
+    habitat: 0.15
+    threat: 0.25
+    climate: 0.10
+    genetics: 0.15
+    behavior: 0.10
+  # Subscores are computed on 0 (optimal) to 100 (collapse), then stored on the graph state's 0.0-1.0 scale.
+  indicatorCalculator:
+    # Precautionary score for a domain with no usable data.
+    missingDomainScore: 50.0
+    # Optional overrides of metric -> [value scored 0, value scored 100].
+    scalingBounds: {}
+    # Component weights are renormalised over whichever components have data.
+    populationWeights: {trend: 0.4, viability: 0.3, recruitment: 0.3}
+    habitatWeights: {rangeLoss: 0.4, fragmentation: 0.3, degradation: 0.3}
+    geneticWeights: {effectivePopulation: 0.75, heterozygosity: 0.25}
+    behaviorWeights: {corridor: 0.4, social: 0.4, physiology: 0.2}
+    herdMovingAverageDays: 7
+    # Used when species.juvenile_recruitment_ratio is not set.
+    defaultJuvenileRecruitmentRatio: 0.3
+    bboxClusterMinSeparation: 1.8
+    bboxClusterMinBoxes: 10
+    mortalityBasePenalty: 5.0
+    mortalityClusterGrowth: 2.0
+    mortalityClusterRadiusMeters: 5000.0
+    mortalityClusterWindowDays: 7.0
+    mcpPercent: 95.0
+    minimumFixesPerAnimal: 5
+    # +1 higher is worse, -1 lower is worse, 0 any deviation is worse.
+    degradationDirections: {}
+    climateDirections: {}
+    threatHalfLifeHours: 48.0
+    # Falls back to database.threatLookbackDays when omitted.
+    threatWindowDays: 30.0
+    # Keyword -> weight; the longest keyword found in the class name is used.
+    threatClassWeights: {}
+    defaultThreatWeight: 0.5
+    zoneMultipliers: {BREEDING: 3.0, WATER_SOURCE: 2.5, CORE_RANGE: 1.5, CORRIDOR: 1.5}
+    peripheryMultiplier: 0.5
+    zoneSearchRadiusMeters: 100000.0
+    climateRollingDays: 30.0
+    climateBaselineYears: 10
+    minimumBaselineYears: 3
+    minimumBaselineDays: 14
+    climateSigmaThreshold: 2.0
+    climateSubthresholdMax: 40.0
+    climateEscalationRate: 1.5
+    extremeWeatherWeight: 0.25
+    heterozygosityBaseline: 0.5
+    corridorFixShare: 0.5
+    corridorExpectedRetention: 0.8
+    orphanMinimumDays: 3
+    orphanPenaltyFloor: 85.0
+    orphanDayPenalty: 15.0
+  graphWorkflow:
+    # Spatial-temporal aggregation
+    analysisRadiusMeters: 50000.0
+    geneticsLookbackDays: 365.0
+    densityGridSize: 5
+    maxTelemetryFixes: 20000
+    maxTraceIDsPerTable: 5000
+    mortalityKeywords: ["carcass", "mortality", "dead"]
+    # Risk momentum and Intervention Priority Index
+    momentumMaxLookbackDays: 90.0
+    momentumGain: 2.0
+    momentumFactorBounds: [0.5, 2.0]
+    feasibilityRadiusMeters: 50000.0
+    feasibilityMultipliers: [1.2, 0.8]
+    # Ranger outposts as {name, latitude, longitude}; empty keeps feasibility at 1.0
+    rangerOutposts: []
+    trendChangeThreshold: 0.05
+    # Inbreeding Penalty Index: Wright's F projected over this many generations vs the tolerable F
+    inbreedingHorizonGenerations: 10.0
+    inbreedingToleranceF: 0.1
+    # Weight of the Ne drift penalty vs the heterozygosity-loss penalty (0-1)
+    inbreedingDriftWeight: 0.6
+    # Immediate poaching trigger
+    poachingClassWeight: 0.9
+    poachingMinConfidence: 0.6
+    poachingRecencyHours: 48.0
+    # Intervention mapping (CRI on the 0.0-1.0 graph scale, 0.8 == CRI 80)
+    criticalCriThreshold: 0.8
+    droneAltitudeM: 120.0
+    maxDispatchTargets: 3
+    alertChannel: "MQTT"
+    # Species ID or scientific name -> six domain weights summing to 1.0
+    speciesDomainWeights: {}
+  explainabilityPrompts:
+    # Subscores (0-100) at or above this unlock their domain's authorised mitigation strategies
+    criticalSubscoreThreshold: 70.0
+    # Decimal places for percentage contributions and the allowed LLM deviation (percentage points)
+    contributionDecimals: 1
+    contributionTolerance: 0.5
+    maxThreatContextClasses: 10
+    maxTargetCells: 5
+    # Elder absence fraction (0-1) treated as lost ecological knowledge
+    knowledgeLossElderAbsence: 0.5
+  llmProvider:
+    # "auto" = local first (cloud first when throttled or the prompt is too big), "local", "cloud" or "none" (fallback only)
+    routingMode: "auto"
+    # Hardware guardrails: free RAM needed to load the model and the CPU temperature that stops local inference
+    minFreeRamGb: 2.5
+    thermalZonePath: "/sys/class/thermal/thermal_zone0/temp"
+    maxCpuTempC: 80.0
+    # Connectivity probe: ICMP ping, then DNS lookup; result cached between calls
+    networkProbeHost: "8.8.8.8"
+    networkDnsHost: "dns.google"
+    networkTimeoutSec: 2.0
+    networkCacheSec: 30.0
+    # Local edge LLM ("ollama", "llamacpp" or "none")
+    localBackend: "ollama"
+    ollamaModel: "llama3.2:3b"
+    ollamaBaseUrl: "http://localhost:11434"
+    ollamaKeepAlive: "10m"
+    # 4/5-bit GGUF weights for the llamacpp backend; grammarFile is an optional GBNF file (empty = built from the schema)
+    ggufModelPath: "~/icmis/models/llama-3.2-3b-instruct-q4_k_m.gguf"
+    grammarFile: ""
+    # Threads capped so at least one Cortex-A76 core stays free for the camera and vision inference
+    localThreads: 3
+    localContextTokens: 4096
+    localMaxTokens: 1536
+    localTimeoutSec: 45.0
+    temperature: 0.0
+    # Cloud fallback ("openai", "anthropic" or "none"); keys come from OPENAI_API_KEY / ANTHROPIC_API_KEY in .env
+    cloudProvider: "openai"
+    openaiModel: "gpt-4o-mini"
+    anthropicModel: "claude-haiku-4-5"
+    cloudMaxTokens: 2048
+    cloudTimeoutSec: 30.0
+    # Circuit breaker: attempts with exponential backoff, then the cloud route rests for circuitCooldownSec
+    cloudMaxAttempts: 3
+    cloudRetryDelaysSec: [1.0, 2.0, 5.0]
+    circuitCooldownSec: 300.0
+    # Send JSON that fails validation back to the cloud with "Fix this JSON to match this schema."
+    selfCorrection: true
+api:
+  title: "ICMIS API"
+  version: "1.0.0"
+  host: "0.0.0.0"
+  port: 8000
+  # debug adds exception details to error responses, access logs and auto-reload; never enable in the field
+  debug: false
+  logLevel: "INFO"
+  # Credentials are allowed, so "*" is rejected; list every dashboard origin explicitly
+  allowedOrigins: ["http://localhost:3000", "https://dashboard.conservation-edge.local"]
+  allowedOriginRegex: ""
+  apiPrefix: "/api/v1"
+  # Compiled frontend served from the Pi itself; relative paths are resolved from the project folder
+  frontendDirectory: "webDashboard/dist"
+  enableDocs: true
+  # false lets the API start without the database (endpoints needing it return 503)
+  requireDatabase: true
+  # LLM warm-up at startup: "background", "blocking" or "off"
+  llmWarmUp: "background"
+  llmWarmUpTimeoutSec: 180.0
+  unloadLlmOnShutdown: true
+  # Router modules loaded if present; each exposes `router` and optional onStartup(app) / onShutdown(app)
+  routerModules:
+    - {module: "api.routesTelemetry", prefix: "/telemetry", tags: ["telemetry"], requireAuth: false}
+    - {module: "api.routesAnalytics", prefix: "/analytics", tags: ["analytics"], requireAuth: false}
+    - {module: "api.routesReports", prefix: "/reports", tags: ["reports"], requireAuth: false}
+    - {module: "api.websocketManager", prefix: "", tags: ["live"], requireAuth: false}
+    - {module: "api.routesSettings", prefix: "/settings", tags: ["settings"], requireAuth: true}
+  # Protected routers need an X-API-Key header matching ICMIS_API_KEY from .env (unset = no check)
+
+telemetryApi:
+  # Ingestion: validated payloads wait here so POST /ingest never blocks on SQLite
+  ingestQueueSize: 5000
+  ingestWorkers: 1
+  # Rows handed to the database write worker per pass (it commits them in one transaction)
+  ingestBatchMax: 250
+  maxPayloadsPerRequest: 500
+  # Readings timestamped further ahead than this are rejected as clock faults
+  futureToleranceSec: 300
+  shutdownDrainTimeoutSec: 15.0
+  # Threat fast path: detections in these categories count as critical even without threat_detected
+  criticalCategories: ["immediate_threat"]
+  threatConfidenceMin: 0.5
+  # Empty = no webhook; otherwise every critical payload is POSTed here as JSON
+  threatWebhookUrl: ""
+  threatWebhookTimeoutSec: 5.0
+  # Critical payloads wake the LangGraph assessment for their H3 cell (at most once per cooldown)
+  wakeAiEngine: true
+  threatWakeCooldownSec: 300
+  assessmentLookbackDays: 30
+  # Species assessed when an acoustic/environmental threat carries no species_id (null = skip)
+  defaultSpeciesID:
+  # Retrieval
+  defaultPageSize: 200
+  maxPageSize: 1000
+  # Streaming
+  streamHeartbeatSec: 15
+  streamClientQueueSize: 100
+  maxStreamClients: 20
+  streamRetryMs: 5000
+  # Statistics
+  statsCacheTtlSec: 300
+  statsCacheMaxEntries: 128
+  statsMaxBuckets: 2000
+  statsDefaultLookbackDays: 7
+
+analyticsApi:
+  # Every endpoint result is cached this long so dashboards opened together share one computation
+  cacheTtlSec: 300
+  cacheMaxEntries: 128
+  # Summary stat-cards: current window vs the equal-length window before it
+  summaryWindowHours: 24
+  summaryMaxWindowHours: 720
+  # Rolling average covers the current reading plus this many preceding readings per sensor
+  rollingPrecedingRows: 6
+  summaryMetrics: ["ambient_temperature_c", "relative_humidity_percent", "water_ph", "dissolved_oxygen_mg_l"]
+  # Deltas within +/- this percentage are reported as "flat"
+  deltaFlatPercent: 1.0
+  # Historical downsampling: ranges up to hourlyMaxDays use hour buckets, up to dailyMaxDays day buckets, then weeks
+  hourlyMaxDays: 14
+  dailyMaxDays: 180
+  historicalMaxPoints: 1000
+  historicalDefaultLookbackDays: 30
+  # Gap filling for offline sensors: "forward_fill", "linear" or "none"
+  imputation: "forward_fill"
+  # Gaps longer than this many buckets stay null so a long outage shows as a break in the chart
+  imputationMaxGapBuckets: 12
+  # Radar / grouped bar zones are H3 sectors at this resolution (must not exceed edna.h3Resolution)
+  radarZoneResolution: 6
+  radarDefaultZones: 5
+  radarMaxZones: 8
+  radarLookbackDays: 30
+  # Signed weights for the Ecological Health Score; negative axes lower the score as they grow
+  radarAxisWeights:
+    wildlife_sightings: 0.25
+    animal_presence: 0.15
+    temperature_variability: -0.15
+    acoustic_threats: -0.30
+    conservation_risk: -0.15
+  # Spatial clustering: the viewport is split into gridDivisions x gridDivisions cells
+  spatialGridDivisions: 64
+  spatialMaxGridDivisions: 256
+  spatialLookbackDays: 7
+  spatialMaxKMeansClusters: 50
+  spatialKMeansIterations: 25
+
+reportsApi:
+  # A LangGraph run takes minutes, so POST /generate enqueues a job and the client polls for it
+  jobQueueSize: 50
+  jobWorkers: 1
+  jobTimeoutSec: 900
+  # Finished jobs stay in memory this long so a slow dashboard can still read the result
+  jobRetentionSec: 3600
+  jobRetentionMax: 200
+  shutdownDrainTimeoutSec: 5.0
+  # An identical scope that is already queued or running returns that job instead of a second LLM run
+  deduplicateScopes: true
+  # Scope defaults when the request only supplies a species and a location
+  defaultLookbackDays: 30
+  maxLookbackDays: 365
+  # Assessment cells are H3 at this resolution (must match edna.h3Resolution)
+  scopeResolution: 7
+  # Names accepted by the ?threat_tier= filter, in escalation_level order 1-5
+  escalationTiers: ["LOW", "GUARDED", "ELEVATED", "HIGH", "CRITICAL"]
+  # Library listing
+  defaultPageSize: 20
+  maxPageSize: 100
+  # Narrative text is truncated to this in list responses; the detail endpoint returns all of it
+  listNarrativeChars: 400
+  # Detail hydration: source rows pulled back per table from input_summary.tracing_keys
+  hydrationRowLimit: 50
+  hydrationEnabled: true
+  detailCacheTtlSec: 60
+  detailCacheMaxEntries: 64
+
+websocketApi:
+  # Live alert fan-out over WebSockets; the path is absolute because this router is mounted without a prefix
+  alertPath: "/ws/alerts/{client_id}"
+  maxConnections: 100
+  maxConnectionsPerClient: 3
+  # Client types a socket may declare; anything else is refused during the handshake
+  clientTypes: ["web", "ios", "android", "field", "service"]
+  defaultClientType: "web"
+  # Alerts waiting on one slow socket; when it overflows the oldest alert is dropped, never a critical one
+  sendQueueSize: 50
+  sendTimeoutSec: 10.0
+  # Heartbeat: a ping every interval, and a socket is flushed once it misses this many in a row
+  heartbeatIntervalSec: 30.0
+  heartbeatMissesAllowed: 2
+  # Zones are H3 cells (must match edna.h3Resolution); a subscription also matches every cell inside it
+  zoneResolution: 7
+  minZoneResolution: 0
+  maxZonesPerClient: 32
+  # Priority ladder, lowest first; clients ask for a floor and never receive anything below it
+  priorities: ["INFO", "ROUTINE", "ELEVATED", "HIGH", "CRITICAL"]
+  defaultMinPriority: "ROUTINE"
+  # Conservation Risk Index thresholds that promote an assessment result to each priority
+  criCriticalThreshold: 80.0
+  criHighThreshold: 60.0
+  criElevatedThreshold: 40.0
+  # Raw telemetry is noisy, so only threats and finished assessments are pushed unless this is true
+  forwardTelemetry: false
+  # A repeated alert for the same zone and classification is suppressed for this long
+  duplicateWindowSec: 30.0
+  # Alerts replayed to a socket that has just connected (0 disables the catch-up buffer)
+  replayBufferSize: 50
+  replayOnConnect: 10
+  # ?token= must match ICMIS_API_KEY when one is configured; browsers cannot set headers on a WebSocket
+  tokenQueryParameter: "token"
+  requireToken: false
+  shutdownCloseCode: 1001
+
+settingsApi:
+  # Apply requests and service status shared with the root helper (icmis-apply.path watches this folder)
+  stateDirectory: "~/icmis/state"
+  # A copy of config.yaml is kept here before every save so any change can be rolled back
+  backupDirectory: "~/icmis/configBackups"
+  maxBackups: 20
+  # Candidate settings are imported in a throwaway process first; a module that rejects them blocks the save
+  preflightEnabled: true
+  preflightTimeoutSec: 180.0
+
+services:
+  # Continuous workers started at boot; a disabled (or not-yet-configured) worker is skipped, not crash-looped
+  gpsTelemetry: {enabled: true}
+  environmentalSensors: {enabled: true}
+  camera: {enabled: true}
+  visionInference: {enabled: true}
+  acousticStream: {enabled: true}
+  acousticInference: {enabled: true}
+  ednaParser: {enabled: true}
+  geneticAnalytics: {enabled: true}
+
+schedules:
+  # onCalendar uses systemd calendar syntax, e.g. "*-*-* 02:30:00" (daily) or "Mon *-*-* 06:00:00" (weekly)
+  databaseBackup:
+    enabled: true
+    onCalendar: "*-*-* 02:30:00"
+    keepCopies: 7
+    directory: "~/icmis/backups"
+  riskAssessment:
+    enabled: true
+    onCalendar: "*-*-* 06:00:00"
+    defaultLookbackDays: 30
+    # Each target is {speciesID, scientificName, latitude, longitude} or {speciesID, h3Cell}; empty = nothing runs
+    targets: []
+
+system:
+  # The Pi answers at http://<hostname>.local on the LAN
+  hostname: "icmis"
+  timezone: "UTC"

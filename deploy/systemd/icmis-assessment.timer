@@ -1,0 +1,11 @@
+# Default time only; Settings > Schedules writes an override drop-in
+[Unit]
+Description=Run ICMIS risk assessments on a schedule
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

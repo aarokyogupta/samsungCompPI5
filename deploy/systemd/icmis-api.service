@@ -1,0 +1,22 @@
+# FastAPI backend: REST, WebSockets, settings and the compiled web dashboard
+[Unit]
+Description=ICMIS API and web dashboard
+Wants=network-online.target icmis-db.service mosquitto.service ollama.service
+After=network-online.target icmis-db.service mosquitto.service ollama.service
+PartOf=icmis.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+EnvironmentFile=-@ROOT@/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@PYTHON@ api/main.py
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=icmis.target

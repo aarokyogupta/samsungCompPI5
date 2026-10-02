@@ -1,0 +1,25 @@
+# One template for every continuous worker; %i is the key from deploy/serviceCatalog.py
+[Unit]
+Description=ICMIS worker %i
+Wants=network-online.target icmis-db.service mosquitto.service
+After=network-online.target icmis-db.service mosquitto.service
+PartOf=icmis.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@USER@
+WorkingDirectory=@ROOT@
+EnvironmentFile=-@ROOT@/.env
+Environment=PYTHONUNBUFFERED=1
+# Exit 1 skips a worker that is disabled or missing its model, without counting as a failure
+ExecCondition=@PYTHON@ deploy/runWorker.py --check %i
+ExecStart=@PYTHON@ deploy/runWorker.py %i
+# The workers catch KeyboardInterrupt to flush queues and close the database cleanly
+KillSignal=SIGINT
+TimeoutStopSec=30
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=icmis.target

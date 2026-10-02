@@ -1,0 +1,12 @@
+# Default time only; Settings > Schedules writes an override drop-in
+[Unit]
+Description=Run the ICMIS database backup on a schedule
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+# Catch up after the Pi was switched off at the scheduled time
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target
