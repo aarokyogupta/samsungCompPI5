@@ -531,13 +531,46 @@ Queue sizes, retry delays, cache TTLs, time-bucket limits, heartbeat timings, pa
 
 ## Models and data-file formats
 
+The repository contains inference code and configuration, but it does **not** contain trained ONNX weights. Prepare/export the models on a workstation, then copy the `.onnx` files and label map to the Pi. Do not rename an unrelated model to make it load: the model's labels, input preprocessing, output tensor, and configuration must agree.
+
 ### Vision model
 
-Copy the model:
+For a smoke test, export Ultralytics' small YOLO11 COCO detector. It can detect general COCO categories (including elephant, giraffe, and zebra), but it is not a species-specific conservation model and will not identify species absent from COCO.
+
+On a workstation with Python, from any working directory:
 
 ```bash
-cp /path/to/vision.onnx ~/icmis/models/vision.onnx
+python3 -m venv ~/icmis-export-venv
+source ~/icmis-export-venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install ultralytics
+yolo export model=yolo11n.pt format=onnx imgsz=640 opset=12 nms=False dynamic=False
 ```
+
+Ultralytics downloads `yolo11n.pt` the first time. The export command creates `yolo11n.onnx` in the current directory. Copy it to the configured model path on the Pi:
+
+```bash
+scp yolo11n.onnx <pi-user>@<pi-host>:~/icmis/models/vision.onnx
+```
+
+This export's fixed `640 x 640` RGB input, NCHW layout, normalized pixel values, and raw YOLO detection output match the current vision preprocessor/decoder. Keep `vision.outputFormat: "auto"` (or set it to `"yolov8"`); do not enable an export-time NMS wrapper because the ICMIS decoder performs its own non-maximum suppression.
+
+The COCO model has 80 classes. `vision.classNames` must contain **all** model class names in model class-index order; a short list containing only the animal names gives wrong labels for the other class IDs. To inspect the names bundled with the downloaded weights on the workstation:
+
+```bash
+python -c "from ultralytics import YOLO; print(YOLO('yolo11n.pt').names)"
+```
+
+Copy those names into `vision.classNames` in `config.yaml`. For actual target species or local threats, use a legally suitable labelled image dataset and fine-tune a detector instead of relying on COCO:
+
+```bash
+yolo detect train model=yolo11n.pt data=/path/to/dataset.yaml imgsz=640 epochs=100
+yolo export model=/path/to/runs/detect/train/weights/best.pt format=onnx imgsz=640 opset=12 nms=False dynamic=False
+```
+
+Set `vision.classNames` to the trained dataset's class names in ID order, and set `vision.threatClasses` to exact names from that list. Use the actual training run's `best.pt` path if it is not `runs/detect/train/weights/best.pt`. Validate the resulting detections on held-out images from the intended cameras before treating alerts as reliable.
+
+Check Ultralytics' [export instructions](https://docs.ultralytics.com/modes/export/), [YOLO11 documentation](https://docs.ultralytics.com/models/yolo11/), and [license](https://github.com/ultralytics/ultralytics/blob/main/LICENSE) before deployment or redistribution. Ultralytics' code and pretrained weights are AGPL-3.0; make sure that license is suitable for your use.
 
 Supported camera media includes common image formats (`jpg`, `jpeg`, `png`, `webp`, `bmp`, `tiff`) and common video formats (`mp4`, `avi`, `mov`, `mkv`, `webm`, and others). Camera files are watched in:
 
@@ -548,14 +581,23 @@ Successfully handled media is archived. Invalid or unsafe input is quarantined. 
 
 ### Acoustic model
 
-Copy:
+There is no ready-to-use acoustic ONNX model in this repository, and a meaningful one cannot be created from the inference code alone: it needs labelled recordings for the wildlife/threat classes at your site. Generic YAMNet or BirdNET downloads are **not** drop-in replacements for this interface. This pipeline resamples mono audio to 16 kHz, creates its own 64-band log-mel features, and feeds a resized spectrogram to the model; those pretrained models use different audio inputs and outputs.
+
+To obtain a compatible model:
+
+1. Choose the labels you actually need and collect licensed, labelled recordings representative of the deployed microphones, sites, seasons, and background noise. Include negative/background examples. Record the source and usage rights for each dataset.
+2. Split recordings into training, validation, and held-out test sets **by recording/site or source**, not by adjacent audio windows, to avoid testing on near-duplicates of training audio.
+3. Use the same feature generation as `inputs/acousticStream.py` and tensor preparation as `processing/acousticInference.py` both for training and inference: mono float audio resampled to 16 kHz; 3-second windows; Hann STFT with `nFft: 1024` and `hopLength: 256`; the project's 64-band triangular Mel filterbank and `10 * log10(power)`; then transpose and resize to 96 time frames by 64 Mel bands. The model input is a float32 tensor of shape `[1, 1, 96, 64]` with `acoustic.inference.inputLayout: "NCHW"`.
+4. Train a classifier with one independent output per label (shape `[1, C]`). A multi-label loss such as binary cross-entropy with logits is suitable when more than one sound can occur in a window. Include a sigmoid in the exported model so its outputs are probabilities in `[0, 1]`; do not use a softmax when multiple labels may be present.
+5. Export that trained classifier to ONNX with a fixed spectrogram shape and a float32 input. Use `onnxruntime` on the workstation to verify that a `[1, 1, 96, 64]` test tensor produces exactly `C` finite probabilities in `[0, 1]`.
+6. Copy both files to the Pi, preserving the mapping between output index and label:
 
 ```bash
-cp /path/to/acoustic.onnx ~/icmis/models/acoustic.onnx
-cp /path/to/acousticClasses.csv ~/icmis/models/acousticClasses.csv
+scp /path/to/acoustic.onnx <pi-user>@<pi-host>:~/icmis/models/acoustic.onnx
+scp /path/to/acousticClasses.csv <pi-user>@<pi-host>:~/icmis/models/acousticClasses.csv
 ```
 
-The class map must have:
+The CSV header must include an index and label column. Indices must be unique, zero-based, and match the model's output positions:
 
 ```csv
 index,display_name
@@ -564,7 +606,9 @@ index,display_name
 2,gunshot
 ```
 
-Labels in `wildlifeClasses`, `threatClasses`, and `classThresholds` must match `display_name` values.
+In `config.yaml`, keep the acoustic dimensions/layout at `inputFrames: 96`, `inputMelBands: 64`, and `inputLayout: "NCHW"` unless you also change the model and preprocessing to match. Put the model's wildlife labels in `wildlifeClasses`, threat labels in `threatClasses`, and optional per-label cutoffs in `classThresholds`; each value must match a `display_name` in the CSV. Leave `inputScale` unset for a float32 model. Tune thresholds on the held-out test set, especially for threat alerts, and validate false-positive and false-negative rates before operational use.
+
+The earlier design notes in `aiResponse.txt` mention YAMNet and BirdNET as examples of audio classifiers, not as tested or included ICMIS model files. To use either, adapt and test the ICMIS feature pipeline/model adapter to that model's documented input and output rather than simply renaming its file.
 
 ### eDNA inputs
 
