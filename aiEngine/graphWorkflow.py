@@ -32,6 +32,7 @@ from aiEngine.explainabilityPrompts import (
     validateReportAgainstContext,
 )
 from aiEngine.llmProvider import LangChainBackend, LLMProvider, LLMRequest
+from aiEngine.focalSpecies import LANGUR, PRIMARY_DOMAINS
 from aiEngine.indicatorCalculator import (
     CLIMATE_DIRECTIONS,
     HETEROZYGOSITY_BASELINE,
@@ -1065,7 +1066,12 @@ async def interventionMappingNode(state: dict[str, Any]) -> dict[str, Any]:
         actions.extend(["RANGER_DISPATCH", "DRONE_DEPLOYMENT"])
 
     # Critical risk (CRI >= 80) maps a directive onto the primary threat driver
-    if riskMetrics.conservation_risk_index >= CRITICAL_CRI_THRESHOLD:
+    focal = (scope.scientific_name or "").casefold() == LANGUR.casefold()
+    imputedPrimary = focal and any(domain in subscores.missing_domains for domain in PRIMARY_DOMAINS)
+    if imputedPrimary:
+        actions = ["ROUTINE_MONITORING"]
+        rationale.append("Primary evidence is incomplete; the composite risk score cannot authorize interventions.")
+    if not imputedPrimary and riskMetrics.conservation_risk_index >= CRITICAL_CRI_THRESHOLD:
         if dominantDomain == "threat" and not riskMetrics.immediate_poaching_threat:
             dispatchToThreats("HIGH", "Critical threat pressure")
         elif dominantDomain == "genetics":
@@ -1085,7 +1091,7 @@ async def interventionMappingNode(state: dict[str, Any]) -> dict[str, Any]:
     if riskMetrics.immediate_poaching_threat:
         dispatchToThreats("CRITICAL", "Immediate poaching threat")
         rationale.append("Immediate poaching threat flag requires ranger dispatch.")
-    if riskMetrics.critical_inbreeding_flag:
+    if riskMetrics.critical_inbreeding_flag and not imputedPrimary:
         actions.append("GENETIC_RESCUE")
         rationale.append(f"Ne {formatNumber(riskMetrics.effective_population_size)} is below the critical threshold.")
 

@@ -11,6 +11,7 @@ class RiskReport {
     this.interventionLevel = 1,
     this.causalFactors = const [],
     this.checklistItems = const [],
+    this.primaryScores = const {},
   });
 
   final String id;
@@ -21,6 +22,7 @@ class RiskReport {
   final double? effectivePopulationSize;
   final double? expectedHeterozygosity;
   final Map<String, double> subscores;
+  final Map<String, double?> primaryScores;
   final int interventionLevel;
   final List<String> causalFactors;
   final List<ChecklistItem> checklistItems;
@@ -32,14 +34,18 @@ class RiskReport {
       id: '${json['id'] ?? json['report_id'] ?? ''}',
       speciesId: '${json['species_id'] ?? json['species']?['id'] ?? ''}',
       speciesName: '${json['species']?['common_name'] ?? json['species']?['name'] ?? 'Unknown species'}',
-      criScore: _number(scores['cri_score'] ?? json['cri_score']),
+      criScore: _number(scores['conservation_risk_index'] ?? scores['cri_score'] ?? json['cri_score']),
       narrative: '${json['narrative_report'] ?? json['narrative'] ?? ''}',
       effectivePopulationSize: _optional(scores['effective_population_size'] ?? json['effective_population_size']),
       expectedHeterozygosity: _optional(scores['expected_heterozygosity'] ?? json['expected_heterozygosity']),
       subscores: {
         for (final entry in rawSubscores.entries) entry.key: _number(entry.value),
       },
-      interventionLevel: (json['intervention_level'] as num?)?.toInt() ?? 1,
+      primaryScores: {
+        for (final item in (scores['primary'] as List? ?? const []).whereType<Map>())
+          if (item['label'] is String) item['label'] as String: _optional(item['risk']),
+      },
+      interventionLevel: ((scores['escalation_level'] ?? json['intervention_level']) as num?)?.toInt() ?? 1,
       causalFactors: (json['causal_factors'] as List?)?.map((item) => '$item').toList() ?? const [],
       checklistItems: (json['checklist_items'] as List?)
               ?.whereType<Map>()

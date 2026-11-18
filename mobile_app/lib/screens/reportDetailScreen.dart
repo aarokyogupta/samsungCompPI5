@@ -23,6 +23,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
       Text(item.speciesName, style: Theme.of(context).textTheme.headlineSmall),
       Text('CRI ${item.criScore.toStringAsFixed(0)} · Intervention level ${item.interventionLevel}'),
       const SizedBox(height: 16),
+      if (item.primaryScores.isNotEmpty) const Text('0–100 risk scale: higher means worse'),
+      for (final score in item.primaryScores.entries)
+        ListTile(
+          title: Text(score.key),
+          trailing: Text(score.value == null ? 'Insufficient evidence' : '${score.value!.toStringAsFixed(1)}/100'),
+        ),
       Text(item.narrative.isEmpty ? 'No narrative is available.' : item.narrative),
       const SizedBox(height: 16),
       for (var index = 0; index < item.checklistItems.length; index++)

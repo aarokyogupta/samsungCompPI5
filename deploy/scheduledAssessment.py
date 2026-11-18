@@ -64,7 +64,7 @@ def main() -> int:
             # The API returns 202 at once; the LangGraph run continues inside the API process
             with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SEC) as response:
                 body = json.loads(response.read() or b"{}")
-            print(f"Queued assessment for species {payload.get('species_id')}: job {body.get('job_id')}.")
+            print(f"Queued assessment for species {payload.get('species_id') or payload.get('scientific_name') or 'focal species'}: job {body.get('job_id')}.")
         except urllib.error.HTTPError as error:
             failures += 1
             print(f"Assessment for species {payload.get('species_id')} rejected ({error.code}): {error.read().decode(errors='replace')}")

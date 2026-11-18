@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { InterventionChecklist, NarrativeMarkdown } from "../components/narrative.jsx";
 import { EmptyState, ErrorNotice, LoadingBlock, Panel, formatClock, formatNumber, priorityStyle } from "../components/uiKit.jsx";
-import { fetchReportDetail, fetchReportJobStatus, fetchReports, triggerReport } from "../services/api.js";
+import { fetchReportDetail, fetchReportJobStatus, fetchReports, httpClient, triggerReport } from "../services/api.js";
 
 // Configuration
 const PAGE_SIZE = 20;
@@ -22,9 +22,65 @@ const THREAT_TIERS = ["", "LOW", "MODERATE", "ELEVATED", "HIGH", "CRITICAL"];
 
 const tierStyle = (tier) => priorityStyle(tier === "MODERATE" ? "ROUTINE" : tier === "LOW" ? "INFO" : tier);
 
+function HabitatPanel() {
+    const [bounds, setBounds] = useState({ south: "", north: "", west: "", east: "" });
+    const [result, setResult] = useState(null);
+    const [error, setError] = useState("");
+    const load = async (event) => {
+        event.preventDefault();
+        setResult(null);
+        setError("");
+        try {
+            const response = await httpClient.get("/reports/habitat", { params: bounds });
+            setResult(response.data);
+        } catch (failure) {
+            setError(failure.message);
+        }
+    };
+    const colours = { High: "#15803d", Moderate: "#84cc16", Low: "#eab308", "Very Low": "#a16207" };
+    return (
+        <Panel eyebrow="Kashmir Grey Langur" title="Habitat suitability" description="Offline grid. Colours show model agreement, not occupancy or measured habitat loss.">
+            <form onSubmit={load} className="flex flex-wrap items-end gap-3">
+                {Object.keys(bounds).map((name) => (
+                    <label className="capitalize" key={name}>
+                        {name}
+                        <input className="block w-24 rounded bg-panelRaised p-2 text-ink" type="number" step="any"
+                            required value={bounds[name]} min={name === "south" || name === "north" ? -90 : -180}
+                            max={name === "south" || name === "north" ? 90 : 180}
+                            onChange={(event) => setBounds({ ...bounds, [name]: event.target.value })} />
+                    </label>
+                ))}
+                <button className="rounded border px-3 py-2" type="submit">Load area</button>
+            </form>
+            {error && <p role="alert">{error}</p>}
+            {result && <p role="status">{result.status.replace(/_/g, " ")}. {result.truncated ? "Area exceeds the display limit; request a smaller area." : `${result.cells.length} cells.`}</p>}
+            {result?.cells.length > 0 && !result.truncated && (
+                <>
+                    <svg className="mt-3 h-72 w-full bg-panelRaised" viewBox="0 0 640 320" role="img" aria-label="Suitability grid: north up">
+                        {result.cells.map((cell) => {
+                            const west = Math.min(...result.cells.map((point) => point.lon));
+                            const east = Math.max(...result.cells.map((point) => point.lon));
+                            const south = Math.min(...result.cells.map((point) => point.lat));
+                            const north = Math.max(...result.cells.map((point) => point.lat));
+                            return <circle key={`${cell.lat}:${cell.lon}`} cx={20 + 600 * (cell.lon - west) / Math.max(0.01, east - west)}
+                                cy={20 + 280 * (north - cell.lat) / Math.max(0.01, north - south)} r="4" fill={colours[cell.suitability] || "#64748b"}>
+                                <title>{cell.suitability || cell.status}: {cell.vote ?? "not scored"}</title>
+                            </circle>;
+                        })}
+                    </svg>
+                    <p className="flex flex-wrap gap-3">
+                        {Object.entries(colours).map(([label, colour]) => <span key={label} style={{ borderLeft: `8px solid ${colour}`, paddingLeft: 5 }}>{label}</span>)}
+                        <span>Grey: outside model domain or no data</span>
+                    </p>
+                </>
+            )}
+        </Panel>
+    );
+}
+
 export default function RiskReports() {
     const { reportID } = useParams();
-    return reportID ? <ReportDetail reportID={reportID} /> : <ReportLibrary />;
+    return reportID ? <ReportDetail reportID={reportID} /> : <><ReportLibrary /><HabitatPanel /></>;
 }
 
 function ReportLibrary() {
@@ -62,6 +118,18 @@ function ReportLibrary() {
     useEffect(() => {
         loadPage();
     }, [loadPage]);
+
+    useEffect(() => {
+        let mounted = true;
+        httpClient.get("/reports/focus").then(({ data }) => {
+            if (!mounted || !data.species) return;
+            const speciesID = String(data.species.id);
+            setTrigger((current) => ({ ...current, speciesID: current.speciesID || speciesID }));
+        }).catch((failure) => {
+            if (mounted) setError(failure);
+        });
+        return () => { mounted = false; };
+    }, []);
 
     const triggerReady =
         Number(trigger.speciesID) > 0 &&
@@ -364,8 +432,17 @@ function ReportDetail({ reportID }) {
             </div>
 
             <div className="grid gap-6 xl:grid-cols-2">
-                <Panel eyebrow="Subscores" title="Domain breakdown">
-                    {subscoreRows.length > 0 ? (
+                <Panel eyebrow="Subscores" title="Domain breakdown" description="0–100 risk scale: higher means worse.">
+                    {report.scores?.primary ? (
+                        <ul className="space-y-3">
+                            {report.scores.primary.map(({ domain, label, risk, components }) => (
+                                <li key={domain}>
+                                    <div className="flex justify-between gap-2"><span>{label}</span><strong>{risk == null ? "Insufficient evidence" : `${formatNumber(risk)}/100`}</strong></div>
+                                    {components.tree_cover_loss_year != null && <small>Tree-cover disturbance: {formatNumber(100 * components.tree_cover_loss_fraction)}% ({components.tree_cover_loss_year}); not necessarily permanent loss.</small>}
+                                </li>
+                            ))}
+                        </ul>
+                    ) : subscoreRows.length > 0 ? (
                         <ul className="space-y-3">
                             {subscoreRows.map(([domain, value]) => (
                                 <li key={domain}>

@@ -892,6 +892,7 @@ def buildSerializationPayload(state: dict[str, Any], modelVersion: str = MODEL_V
         "state_schema_version": state.get("state_schema_version", STATE_SCHEMA_VERSION),
         "score_scale": "0-100 columns; graph state uses 0.0-1.0",
         "scientific_name": scope.scientific_name,
+        "focal_evidence_version": 1,
         "latitude": scope.latitude,
         "longitude": scope.longitude,
         "tracing_keys": tracingKeys.model_dump(mode="json") if tracingKeys else {"record_ids": {}},

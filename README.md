@@ -4,6 +4,111 @@ ICMIS is an edge-first conservation monitoring platform designed to run on a Ras
 
 This guide describes a full Raspberry Pi OS Lite deployment. Read the configuration section before starting services: several values in `config.yaml` are placeholders that must be replaced with details for your sensors, study area, species, models, network, and security policy.
 
+## Kashmir Grey Langur deployment
+
+ICMIS defaults new assessments to the Kashmir Grey Langur (*Semnopithecus ajax*) when no species is supplied. The database migration registers it without assuming a numeric ID. Explicit assessments for other species still work. No site or occurrence locations are supplied by default, and ICMIS does not assign unlabeled detections to the focal species.
+
+### 1. Set up the Pi and the monitoring sites
+
+Follow the [Pi installation](#prepare-raspberry-pi-os-lite), [database setup](#initialize-and-verify-the-database), and [systemd installation](#run-icmis-automatically-at-power-on) below. Run commands as the service user from the repository root, and back up existing installations before applying migrations. Set an `ICMIS_API_KEY` and use HTTPS or a trusted private network; the habitat endpoint will not serve data without a configured key. Set `aiEngine.llmProvider.routingMode: "none"` for offline use and to avoid sending field data to a cloud provider.
+
+In Settings → Schedules, add one assessment target per monitored site. For the focal species, use `{"h3Cell":"YOUR_VALID_H3_CELL"}` or supply a latitude and longitude; omit `speciesID`. Use a real operator-approved site, not a guessed location. Set up MQTT device mappings and verified species IDs before sending telemetry. The focal ID is available from `GET /api/v1/reports/focus`.
+
+The four primary report scores are **risks**, 0–100 with higher values worse. Missing input is shown as insufficient evidence instead of a measured 50. The older six-domain composite still uses and records a configured fallback for compatibility. Climate and Behaviour remain supporting domains.
+
+| Score | What to provide |
+|---|---|
+| Population Health | A verified, comparable local census and a viability threshold for the same population, reviewed by an ecologist. Do not treat repeated cameras, GPS pings, public records, or broad detector labels as independent animals. |
+| Habitat Destruction | A dated tree-cover loss layer (below), plus any suitable GPS-range, mapped-fragmentation and sensor baselines. Tree-cover disturbance is not necessarily permanent, and predicted suitability is not destruction. |
+| Human Threats | Spatially and temporally relevant confirmed threat events from the existing telemetry ingestion or validated acoustic detections. Zero events are scored as zero only when a steward confirms coverage for the full assessment period. Roads and settlements are context, not incident counts. |
+| Genetic Resilience | Approved, QC-passed comparable population/locus summaries in `genetics_records`, with the assessment species ID and H3 cell. The current eDNA worker writes a separate metrics table: a data steward must review the data and register validated population/locus summaries before the report can use them. An eDNA presence record or reference sequence is not such evidence. |
+
+Vision and acoustic inference workers default to disabled. The generic vision smoke-test model below does not distinguish *S. ajax*. Obtain and field-validate species-specific weights and exact label mappings before turning inference on; the system does not ship those weights. Confirm the graph receives species-linked records before relying on model detections in assessments.
+
+The local data steward can register verified census and coverage rows in `focal_field_evidence` using the `sqlite3 ~/icmis/inputs.db` shell and the SQL template below. Replace every placeholder before running it. Use a separate coverage row (`census_count` = `NULL`, `threat_coverage` = `1`) only when patrol or validated sensor logs cover the complete date range. For a census-only row set `threat_coverage` to `0`. Set `species.minimum_viable_population` only if a reviewed threshold applies to the monitored population; otherwise leave Population Health unavailable.
+
+```sql
+PRAGMA foreign_keys = ON;
+INSERT INTO focal_field_evidence
+  (species_id, h3_cell, period_start, period_end, census_count, threat_coverage, source)
+SELECT id, 'APPROVED_H3_CELL', 'START_YYYY-MM-DD', 'END_YYYY-MM-DD',
+       NULL, 1, 'VERIFIED_LOCAL_RECORD_ID'
+FROM species WHERE scientific_name = 'Semnopithecus ajax';
+```
+
+### 2. Get public inputs on a workstation
+
+Draw and export your study boundary as a WGS84 GeoJSON **geometry** (Polygon or MultiPolygon, not a FeatureCollection). Do not use presence locations to choose a convenient boundary or share sensitive points. Keep private datasets outside the repository. Prepare the following single-band GeoTIFFs with a CRS and explicit nodata. They can have different native grids; the trainer aligns them to approximately 1 km.
+
+| Input | Free access and preparation |
+|---|---|
+| `bio1` through `bio19` | [WorldClim 2.1 historical normals](https://www.worldclim.org/data/worldclim21.html). Download the 30-arcsecond **Bioclimatic variables** ZIP or use its direct link in a download script. Extract the 19 bands as separate files. These are climatological normals, not current local weather. |
+| `elevation` | [NASA ASTER GDEM v3](https://data.nasa.gov/dataset/aster-global-digital-elevation-model-v003-7ede1). Use a free Earthdata Login as required, download intersecting tiles, and mosaic in QGIS/GDAL with elevation in metres. Optional predictors may include slope and aspect encoded as eastness/northness or the paper’s additional DEM indices. Record each derivation; these are not computed automatically. |
+| `ndvi`, `evi` | [NASA MOD13A1 v6.1](https://www.earthdata.nasa.gov/data/catalog/lpcloud-mod13a1-061). Use [AppEEARS](https://appeears.earthdatacloud.nasa.gov/) or its API to request the area and matching date window, keeping the quality band. Mask low-quality/cloud/snow data and build a comparable seasonal composite; apply the product’s `0.0001` scale only if your export has not already applied it. |
+| `forest_fraction` | [ESA WorldCover](https://esa-worldcover.org/en/data-access) has direct tile downloads as an alternative to the paper’s FAO GLC-SHARE. Reclass tree-cover pixels to `1`, other known land to `0`, and leave unknown pixels as nodata. Use `average` resampling so the output is a fraction. Do not average raw land-cover class numbers. |
+| `tree_cover_loss_fraction` (optional) | [UMD GLAD tiles](https://glad.umd.edu/data-download). For a finished calendar year, prepare a raster that represents the fraction of evaluated cell area disturbed in that year using a stated baseline tree-cover threshold. Keep unknown coverage nodata, not zero. Set `loss_year` in the manifest. The risk assessment uses recent valid data at the assessment point; it does not infer a site-wide percent from one cell. |
+| Reviewed occurrences | [GBIF species page](https://www.gbif.org/species/4267222) and [occurrence API](https://techdocs.gbif.org/en/openapi/v1/occurrence), or your approved field records. Download by taxon and site boundary and keep dataset attribution, dates and coordinate uncertainty. Review identification, licensing, duplicate records, sensitive/obscured coordinates, local source bias and geographic coverage before approval. A free public download may be too sparse to train a map. |
+| Supporting references | [OpenStreetMap Geofabrik extracts](https://download.geofabrik.de/) for road/settlement context; [GenBank](https://www.ncbi.nlm.nih.gov/genbank/) and [ENA](https://www.ebi.ac.uk/ena/browser/home) for reference accessions or population-study data where appropriate. There is no dependable public substitute for authorized local censuses, patrol records, sensor coverage and population/locus metadata. |
+
+Use the direct versioned downloads or provider APIs where available; in either case the inputs to ICMIS are local files. Record source/version/license rather than redistributing inputs indiscriminately. No account or API token needs to be copied to the Pi for habitat mapping.
+
+For example, to fetch WorldClim on a Linux workstation:
+
+```bash
+curl --fail --location --retry 3 \
+  https://geodata.ucdavis.edu/climate/worldclim/2_1/base/wc2.1_30s_bio.zip \
+  --output wc2.1_30s_bio.zip
+unzip wc2.1_30s_bio.zip -d worldclim-bio
+```
+
+### 3. Train and validate habitat suitability
+
+Create `presences.csv` with these headers: `scientific_name,longitude,latitude,uncertainty_m,source,approved`. Set `approved` to `true` only for screened records, use the canonical scientific name, and enter a numeric uncertainty no greater than 1000 m. The trainer deduplicates records to at most one presence per grid cell.
+
+Create a JSON manifest next to the boundary, rasters, and CSV. Add each of the layers listed above under `layers` (`bio1` through `bio19` are individual keys). Paths are relative to the manifest. This is a partial example; fill in all required layers and provenance:
+
+```json
+{
+  "boundary": "study-area.geojson",
+  "presences": "presences.csv",
+  "layers": {
+    "elevation": {"path":"elevation.tif","source":"NASA ASTER GDEM","version":"3","license":"provider data terms","units":"m"},
+    "ndvi": {"path":"ndvi.tif","source":"NASA MOD13A1 seasonal composite","version":"6.1","license":"NASA data terms","units":"unitless","scale":0.0001},
+    "bio1": {"path":"wc2.1_30s_bio_1.tif","source":"WorldClim","version":"2.1","license":"provider data terms","units":"degrees C"}
+  }
+}
+```
+
+In the repository on a workstation (Python 3.11+):
+
+```bash
+python3 -m venv ~/icmis-habitat-venv
+source ~/icmis-habitat-venv/bin/activate
+python -m pip install -r habitat/requirements.txt
+python -m habitat.train /path/to/manifest.json /path/to/langur-habitat.json
+```
+
+On Windows PowerShell, create the environment with `py -m venv .habitat-venv`, then substitute `.\.habitat-venv\Scripts\python.exe` for `python` instead of activating it. Use a new output file for every run. Do not store it or the private inputs in Git.
+
+The trainer uses five balanced working sets of non-forest pseudo-absences at 1400–3600 m. It fits StandardScaler/PCA (up to five axes) within training folds, and evaluates an RBF-SVM, random forest and logistic regression rather than replicating the full [Hameed et al. ensemble](https://doi.org/10.1007/s10329-025-01231-2). Models must meet AUC ≥ 0.90 and TSS ≥ 0.70, and the final ensemble must pass the same gates on separate spatial blocks. These metrics distinguish screened presences from **pseudo-absences**, not surveyed true absences. The forest restriction makes that contrast easier and can inflate apparent performance. Validate against independent field data before using results operationally.
+
+Training fails rather than publishing a map if there are too few reliable cells/blocks or validation fails. A committee vote of at least 0.75 is High; 0.50–<0.75 Moderate; 0.25–<0.50 Low; below 0.25 Very Low. This is model agreement, not occupancy probability or proof of absence. Extrapolated and nodata cells are not assigned a suitability class.
+
+### 4. Install and verify the offline map on the Pi
+
+```bash
+# On the workstation (replace the hostname):
+scp /path/to/langur-habitat.json icmis@icmis-pi:~/langur-habitat.json
+
+# On the Pi from the repository root, as the ICMIS service user:
+source ~/icmis/venv/bin/activate
+python -m habitat.bundle ~/langur-habitat.json
+```
+
+The importer validates and atomically replaces `~/icmis/habitat/active.db`. The Pi does not need Rasterio, scikit-learn, a provider token, or an internet connection to serve the map. A previous successful install is saved as `~/icmis/habitat/previous.db`; to roll back using the default paths, run `cp ~/icmis/habitat/previous.db ~/icmis/habitat/rollback.db` then `mv ~/icmis/habitat/rollback.db ~/icmis/habitat/active.db` as the service user. Back up these files separately from the main SQLite database.
+
+In the web dashboard’s Risk Reports page, enter a viewport within the study area in **Habitat suitability**. The map uses no external tiles. With the network disconnected from the internet, confirm the local dashboard still shows the map and report evidence. Check that unauthenticated map requests are denied, service logs are clean, and a report without data shows insufficient evidence. Use a smaller viewport if the response hits the cell limit. Inspect upload time, source dates, loss year, and map warnings before using or replacing a bundle. Keep both map access and sensor locations restricted to approved operators.
+
 ## Contents
 
 1. [What runs on the Pi](#what-runs-on-the-pi)

@@ -33,6 +33,8 @@ from aiEngine.stateSchema import (
     validatedNode,
 )
 from database.dbManager import THREAT_LOOKBACK_DAYS, getSearchFrames
+from aiEngine.focalSpecies import LANGUR
+from habitat.bundle import bundlePath, recentLoss
 
 # Load settings from YAML
 with open("config.yaml", "r") as f:
@@ -234,6 +236,10 @@ class HabitatZone(CoordinateModel):
 
 
 class IndicatorContext(StateModel):
+    verified_census_count: Optional[NonNegativeInt] = None
+    verified_threat_coverage: bool = False
+    forest_loss_fraction: Optional[float] = None
+    forest_loss_year: Optional[int] = None
     juvenile_recruitment_ratio: Optional[PositiveFloat] = None
     minimum_viable_population: Optional[PositiveFloat] = None
     critical_ne_threshold: PositiveFloat = CRITICAL_NE_THRESHOLD
@@ -531,6 +537,11 @@ def calculateHabitatSubscore(
     degradationScore, metricScores = calculateDegradationScore(dict(raw.sensor_metric_means), context.metric_baselines)
     components["degradation"] = degradationScore
     components.update(metricScores)
+    if context.forest_loss_fraction is not None:
+        components["tree_cover_loss_fraction"] = context.forest_loss_fraction
+        components["tree_cover_loss_year"] = float(context.forest_loss_year) if context.forest_loss_year else None
+        components["treeCoverLoss"] = clampRisk(100.0 * context.forest_loss_fraction)
+        return weightedScore(components, {**HABITAT_WEIGHTS, "treeCoverLoss": 1.0}), components
     return weightedScore(components, HABITAT_WEIGHTS), components
 
 
@@ -803,6 +814,20 @@ def calculateNormalizedSubscores(
         "genetics": calculateGeneticSubscore(raw, context),
         "behavior": calculateBehaviorSubscore(raw, context),
     }
+    if scope and (scope.scientific_name or "").casefold() == LANGUR.casefold():
+        _, threatComponents = domainResults["threat"]
+        threatComponents["confirmed_coverage"] = float(context.verified_threat_coverage)
+        if not threatComponents.get("event_count") and not context.verified_threat_coverage:
+            domainResults["threat"] = None, threatComponents
+        census = context.verified_census_count
+        threshold = context.minimum_viable_population
+        viability = (
+            scaleToRisk("viabilityShortfallFraction", max(0.0, 1.0 - census / threshold))
+            if census is not None and threshold is not None else None
+        )
+        domainResults["population"] = viability, {
+            "viability": viability, "verified_census_count": census, "minimum_viable_population": threshold,
+        }
 
     warnings = list(context.warnings)
     scores: dict[str, float] = {}
@@ -888,6 +913,36 @@ async def fetchIndicatorContext(
     warnings: list[str] = []
     windowStartMs = toEpochMilliseconds(raw.window_start)
     windowEndMs = toEpochMilliseconds(raw.window_end)
+
+    if (scope.scientific_name or "").casefold() == LANGUR.casefold():
+        try:
+            dates = (scope.period_start.date().isoformat(), scope.period_end.date().isoformat())
+            censusRows = await databaseManager.fetchAll(
+                """SELECT census_count FROM focal_field_evidence
+                   WHERE species_id = ? AND h3_cell = ? AND census_count IS NOT NULL
+                   AND period_start >= ? AND period_end <= ?
+                   ORDER BY period_end DESC, period_start DESC, source LIMIT 1;""",
+                (scope.species_id, scope.h3_cell, *dates),
+            )
+            coverRows = await databaseManager.fetchAll(
+                """SELECT 1 FROM focal_field_evidence
+                   WHERE species_id = ? AND h3_cell = ? AND threat_coverage = 1
+                   AND period_start <= ? AND period_end >= ? LIMIT 1;""",
+                (scope.species_id, scope.h3_cell, *dates),
+            )
+            if censusRows:
+                contextValues["verified_census_count"] = censusRows[0]["census_count"]
+            contextValues["verified_threat_coverage"] = bool(coverRows)
+        except sqlite3.Error as error:
+            warnings.append(f"indicatorCalculator: field survey/coverage evidence unavailable: {error}")
+
+    if (scope.scientific_name or "").casefold() == LANGUR.casefold() and scope.latitude is not None and scope.longitude is not None:
+        try:
+            loss = await asyncio.to_thread(recentLoss, bundlePath(config), scope.latitude, scope.longitude, scope.period_end)
+            if loss is not None:
+                contextValues["forest_loss_fraction"], contextValues["forest_loss_year"] = loss
+        except (OSError, sqlite3.Error, ValueError, KeyError) as error:
+            warnings.append(f"indicatorCalculator: habitat evidence unavailable: {error}")
 
     try:
         speciesRows = await databaseManager.fetchAll(

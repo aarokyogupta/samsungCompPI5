@@ -47,6 +47,12 @@ emaAlphas:
   airQualityLevel: 0.15
   pollutantConcentrationLevel: 0.2
 
+focalSpecies:
+  scientificName: "Semnopithecus ajax"
+
+habitatModel:
+  bundlePath: "~/icmis/habitat/active.db"
+
 camera:
   pollingIntervalSec: 0.5
 
@@ -485,9 +491,9 @@ services:
   gpsTelemetry: {enabled: true}
   environmentalSensors: {enabled: true}
   camera: {enabled: true}
-  visionInference: {enabled: true}
+  visionInference: {enabled: false}
   acousticStream: {enabled: true}
-  acousticInference: {enabled: true}
+  acousticInference: {enabled: false}
   ednaParser: {enabled: true}
   geneticAnalytics: {enabled: true}
 

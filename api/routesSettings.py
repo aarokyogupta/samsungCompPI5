@@ -416,8 +416,11 @@ def validateAssessmentTargets(value: Any) -> list:
         if not isinstance(target, dict):
             raise ValueError(f"{label} must be an object.")
         speciesID = target.get("speciesID")
-        if isinstance(speciesID, bool) or not isinstance(speciesID, int) or speciesID < 1:
-            raise ValueError(f"{label} needs a positive integer speciesID.")
+        if speciesID is not None and (isinstance(speciesID, bool) or not isinstance(speciesID, int) or speciesID < 1):
+            raise ValueError(f"{label} speciesID must be a positive integer when supplied.")
+        name = target.get("scientificName")
+        if name is not None and (not isinstance(name, str) or not name.strip()):
+            raise ValueError(f"{label} scientificName must be non-empty text when supplied.")
         if target.get("h3Cell"):
             if not h3.is_valid_cell(str(target["h3Cell"]).strip().lower()):
                 raise ValueError(f"{label} h3Cell is not a valid H3 index.")

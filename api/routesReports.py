@@ -9,6 +9,7 @@ import httpx
 import json
 import logging
 import os
+import secrets
 from pydantic import BaseModel, ConfigDict, Field, PositiveInt, model_validator
 import sqlite3
 from starlette.exceptions import HTTPException
@@ -37,6 +38,8 @@ from aiEngine.stateSchema import (  # noqa: E402
     createInitialState,
 )
 from api.routesTelemetry import AsyncTtlCache, getDatabase  # noqa: E402
+from aiEngine.focalSpecies import LANGUR, primaryScores  # noqa: E402
+from habitat.bundle import bundlePath, readCells  # noqa: E402
 from database.models import formatUtcTimestamp, toUtcDatetime  # noqa: E402
 
 # Load settings from YAML
@@ -119,7 +122,7 @@ logger = logging.getLogger("icmis.api.reports")
 class ReportTriggerRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    species_id: PositiveInt
+    species_id: Optional[PositiveInt] = None
     scientific_name: Optional[str] = None
     # Location: an H3 cell, a point, or a bounding box whose centre is used
     h3_cell: Optional[str] = None
@@ -576,6 +579,11 @@ def formatReportRow(row: dict[str, Any], narrativeChars: Optional[int] = None) -
         "model_version": row.get("model_version"),
         "generated_at": row.get("generated_at"),
     }
+    if str(formatted["species"]["scientific_name"]).casefold() == LANGUR.casefold():
+        formatted["scores"]["primary"] = primaryScores(
+            formatted["scores"]["subscores"], summary.get("missing_domains") or [],
+            summary.get("subscore_components") or {}, summary.get("focal_evidence_version") == 1,
+        )
     if narrativeChars is not None:
         excerpt = narrative[:narrativeChars]
         formatted["narrative_excerpt"] = f"{excerpt}..." if len(narrative) > narrativeChars else excerpt
@@ -589,6 +597,39 @@ def formatReportRow(row: dict[str, Any], narrativeChars: Optional[int] = None) -
 # Module-level router; api/main.py mounts it at /api/v1/reports
 
 router = APIRouter()
+
+
+@router.get("/focus")
+async def getFocusSpecies(request: Request) -> dict[str, Any]:
+    name = config.get("focalSpecies", {}).get("scientificName", LANGUR)
+    if not name:
+        return {"species": None}
+    rows = await getDatabase(request).fetchAll(
+        "SELECT id, scientific_name, common_name FROM species WHERE scientific_name = ?;", (name,)
+    )
+    return {"species": dict(rows[0]) if rows else None}
+
+
+@router.get("/habitat")
+async def getHabitat(
+    request: Request,
+    south: float = Query(..., ge=-90, le=90),
+    north: float = Query(..., ge=-90, le=90),
+    west: float = Query(..., ge=-180, le=180),
+    east: float = Query(..., ge=-180, le=180),
+) -> dict[str, Any]:
+    key = request.app.state.settings.api_key
+    if not key or not key.get_secret_value():
+        raise HTTPException(503, "Configure an ICMIS API key before serving habitat data.")
+    if not secrets.compare_digest(request.headers.get("X-API-Key", "").encode(), key.get_secret_value().encode()):
+        raise HTTPException(401, "A valid ICMIS API key is required.")
+    if south >= north or west >= east:
+        raise HTTPException(422, "Supply valid south/north and west/east bounds.")
+    try:
+        return await asyncio.to_thread(readCells, bundlePath(config), (south, north, west, east))
+    except (OSError, sqlite3.Error, ValueError, KeyError) as error:
+        logger.error("Could not read the habitat bundle: %s", error)
+        raise HTTPException(503, "Habitat bundle is unreadable.") from error
 
 
 # Lifecycle hooks called by api/main.py (shutdown runs before the database is closed)
@@ -613,7 +654,21 @@ async def onShutdown(app: FastAPI) -> None:
 @router.post("/generate", status_code=202)
 async def generateReport(request: Request, trigger: ReportTriggerRequest) -> Response:
     service = getReportsService(request)
-    getDatabase(request)
+    database = getDatabase(request)
+    if trigger.species_id is None:
+        name = trigger.scientific_name or config.get("focalSpecies", {}).get("scientificName", LANGUR)
+        rows = await database.fetchAll(
+            "SELECT id, scientific_name FROM species WHERE scientific_name = ?;", (name,)
+        )
+    else:
+        rows = await database.fetchAll(
+            "SELECT id, scientific_name FROM species WHERE id = ?;", (trigger.species_id,)
+        )
+    if not rows:
+        raise HTTPException(404, "Assessment species was not found.")
+    if trigger.scientific_name and trigger.scientific_name.casefold().strip() != rows[0]["scientific_name"].casefold():
+        raise HTTPException(422, "Species ID and scientific name refer to different species.")
+    trigger = trigger.model_copy(update={"species_id": rows[0]["id"], "scientific_name": rows[0]["scientific_name"]})
     job, wasReused = service.submit(trigger)
     statusUrl = request.app.url_path_for("getReportJobStatus", job_id=job.jobID)
     body = {
