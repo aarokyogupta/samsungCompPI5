@@ -16,12 +16,12 @@ In Settings → Schedules, add one assessment target per monitored site. For the
 
 The four primary report scores are **risks**, 0–100 with higher values worse. Missing input is shown as insufficient evidence instead of a measured 50. The older six-domain composite still uses and records a configured fallback for compatibility. Climate and Behaviour remain supporting domains.
 
-| Score | What to provide |
-|---|---|
-| Population Health | A verified, comparable local census and a viability threshold for the same population, reviewed by an ecologist. Do not treat repeated cameras, GPS pings, public records, or broad detector labels as independent animals. |
-| Habitat Destruction | A dated tree-cover loss layer (below), plus any suitable GPS-range, mapped-fragmentation and sensor baselines. Tree-cover disturbance is not necessarily permanent, and predicted suitability is not destruction. |
-| Human Threats | Spatially and temporally relevant confirmed threat events from the existing telemetry ingestion or validated acoustic detections. Zero events are scored as zero only when a steward confirms coverage for the full assessment period. Roads and settlements are context, not incident counts. |
-| Genetic Resilience | Approved, QC-passed comparable population/locus summaries in `genetics_records`, with the assessment species ID and H3 cell. The current eDNA worker writes a separate metrics table: a data steward must review the data and register validated population/locus summaries before the report can use them. An eDNA presence record or reference sequence is not such evidence. |
+| Score               | What to provide                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Population Health   | A verified, comparable local census and a viability threshold for the same population, reviewed by an ecologist. Do not treat repeated cameras, GPS pings, public records, or broad detector labels as independent animals.                                                                                                                                                       |
+| Habitat Destruction | A dated tree-cover loss layer (below), plus any suitable GPS-range, mapped-fragmentation and sensor baselines. Tree-cover disturbance is not necessarily permanent, and predicted suitability is not destruction.                                                                                                                                                                 |
+| Human Threats       | Spatially and temporally relevant confirmed threat events from the existing telemetry ingestion or validated acoustic detections. Zero events are scored as zero only when a steward confirms coverage for the full assessment period. Roads and settlements are context, not incident counts.                                                                                    |
+| Genetic Resilience  | Approved, QC-passed comparable population/locus summaries in `genetics_records`, with the assessment species ID and H3 cell. The current eDNA worker writes a separate metrics table: a data steward must review the data and register validated population/locus summaries before the report can use them. An eDNA presence record or reference sequence is not such evidence. |
 
 Vision and acoustic inference workers default to disabled. The generic vision smoke-test model below does not distinguish *S. ajax*. Obtain and field-validate species-specific weights and exact label mappings before turning inference on; the system does not ship those weights. Confirm the graph receives species-linked records before relying on model detections in assessments.
 
@@ -40,15 +40,15 @@ FROM species WHERE scientific_name = 'Semnopithecus ajax';
 
 Draw and export your study boundary as a WGS84 GeoJSON **geometry** (Polygon or MultiPolygon, not a FeatureCollection). Do not use presence locations to choose a convenient boundary or share sensitive points. Keep private datasets outside the repository. Prepare the following single-band GeoTIFFs with a CRS and explicit nodata. They can have different native grids; the trainer aligns them to approximately 1 km.
 
-| Input | Free access and preparation |
-|---|---|
-| `bio1` through `bio19` | [WorldClim 2.1 historical normals](https://www.worldclim.org/data/worldclim21.html). Download the 30-arcsecond **Bioclimatic variables** ZIP or use its direct link in a download script. Extract the 19 bands as separate files. These are climatological normals, not current local weather. |
-| `elevation` | [NASA ASTER GDEM v3](https://data.nasa.gov/dataset/aster-global-digital-elevation-model-v003-7ede1). Use a free Earthdata Login as required, download intersecting tiles, and mosaic in QGIS/GDAL with elevation in metres. Optional predictors may include slope and aspect encoded as eastness/northness or the paper’s additional DEM indices. Record each derivation; these are not computed automatically. |
-| `ndvi`, `evi` | [NASA MOD13A1 v6.1](https://www.earthdata.nasa.gov/data/catalog/lpcloud-mod13a1-061). Use [AppEEARS](https://appeears.earthdatacloud.nasa.gov/) or its API to request the area and matching date window, keeping the quality band. Mask low-quality/cloud/snow data and build a comparable seasonal composite; apply the product’s `0.0001` scale only if your export has not already applied it. |
-| `forest_fraction` | [ESA WorldCover](https://esa-worldcover.org/en/data-access) has direct tile downloads as an alternative to the paper’s FAO GLC-SHARE. Reclass tree-cover pixels to `1`, other known land to `0`, and leave unknown pixels as nodata. Use `average` resampling so the output is a fraction. Do not average raw land-cover class numbers. |
-| `tree_cover_loss_fraction` (optional) | [UMD GLAD tiles](https://glad.umd.edu/data-download). For a finished calendar year, prepare a raster that represents the fraction of evaluated cell area disturbed in that year using a stated baseline tree-cover threshold. Keep unknown coverage nodata, not zero. Set `loss_year` in the manifest. The risk assessment uses recent valid data at the assessment point; it does not infer a site-wide percent from one cell. |
-| Reviewed occurrences | [GBIF species page](https://www.gbif.org/species/4267222) and [occurrence API](https://techdocs.gbif.org/en/openapi/v1/occurrence), or your approved field records. Download by taxon and site boundary and keep dataset attribution, dates and coordinate uncertainty. Review identification, licensing, duplicate records, sensitive/obscured coordinates, local source bias and geographic coverage before approval. A free public download may be too sparse to train a map. |
-| Supporting references | [OpenStreetMap Geofabrik extracts](https://download.geofabrik.de/) for road/settlement context; [GenBank](https://www.ncbi.nlm.nih.gov/genbank/) and [ENA](https://www.ebi.ac.uk/ena/browser/home) for reference accessions or population-study data where appropriate. There is no dependable public substitute for authorized local censuses, patrol records, sensor coverage and population/locus metadata. |
+| Input                                   | Free access and preparation                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bio1` through `bio19`              | [WorldClim 2.1 historical normals](https://www.worldclim.org/data/worldclim21.html). Download the 30-arcsecond **Bioclimatic variables** ZIP or use its direct link in a download script. Extract the 19 bands as separate files. These are climatological normals, not current local weather.                                                                                                                                                                            |
+| `elevation`                           | [NASA ASTER GDEM v3](https://data.nasa.gov/dataset/aster-global-digital-elevation-model-v003-7ede1). Use a free Earthdata Login as required, download intersecting tiles, and mosaic in QGIS/GDAL with elevation in metres. Optional predictors may include slope and aspect encoded as eastness/northness or the paper’s additional DEM indices. Record each derivation; these are not computed automatically.                                                                |
+| `ndvi`, `evi`                       | [NASA MOD13A1 v6.1](https://www.earthdata.nasa.gov/data/catalog/lpcloud-mod13a1-061). Use [AppEEARS](https://appeears.earthdatacloud.nasa.gov/) or its API to request the area and matching date window, keeping the quality band. Mask low-quality/cloud/snow data and build a comparable seasonal composite; apply the product’s `0.0001` scale only if your export has not already applied it.                                                                             |
+| `forest_fraction`                     | [ESA WorldCover](https://esa-worldcover.org/en/data-access) has direct tile downloads as an alternative to the paper’s FAO GLC-SHARE. Reclass tree-cover pixels to `1`, other known land to `0`, and leave unknown pixels as nodata. Use `average` resampling so the output is a fraction. Do not average raw land-cover class numbers.                                                                                                                                  |
+| `tree_cover_loss_fraction` (optional) | [UMD GLAD tiles](https://glad.umd.edu/data-download). For a finished calendar year, prepare a raster that represents the fraction of evaluated cell area disturbed in that year using a stated baseline tree-cover threshold. Keep unknown coverage nodata, not zero. Set `loss_year` in the manifest. The risk assessment uses recent valid data at the assessment point; it does not infer a site-wide percent from one cell.                                               |
+| Reviewed occurrences                    | [GBIF species page](https://www.gbif.org/species/4267222) and [occurrence API](https://techdocs.gbif.org/en/openapi/v1/occurrence), or your approved field records. Download by taxon and site boundary and keep dataset attribution, dates and coordinate uncertainty. Review identification, licensing, duplicate records, sensitive/obscured coordinates, local source bias and geographic coverage before approval. A free public download may be too sparse to train a map. |
+| Supporting references                   | [OpenStreetMap Geofabrik extracts](https://download.geofabrik.de/) for road/settlement context; [GenBank](https://www.ncbi.nlm.nih.gov/genbank/) and [ENA](https://www.ebi.ac.uk/ena/browser/home) for reference accessions or population-study data where appropriate. There is no dependable public substitute for authorized local censuses, patrol records, sensor coverage and population/locus metadata.                                                                    |
 
 Use the direct versioned downloads or provider APIs where available; in either case the inputs to ICMIS are local files. Record source/version/license rather than redistributing inputs indiscriminately. No account or API token needs to be copied to the Pi for habitat mapping.
 
@@ -137,19 +137,19 @@ In the web dashboard’s Risk Reports page, enter a viewport within the study ar
 
 ICMIS is a group of cooperating processes rather than one monolithic script.
 
-| Component | Command | Purpose | Required? |
-|---|---|---|---|
-| Database bootstrap | `python database/dbManager.py` | Creates the schema and applies numbered migrations | Run once after installation and after updates |
-| API | `uvicorn api.main:app --host 0.0.0.0 --port 8000` | REST API, SSE, WebSocket alerts, report jobs, and compiled dashboard | Yes |
-| GPS listener | `python inputs/gpsTelemetry.py` | Consumes GPS MQTT messages | If GPS devices are used |
-| Environmental listener | `python inputs/environmentalSensors.py` | Consumes environmental MQTT messages | If environmental sensors are used |
-| Camera ingestion | `python inputs/camera.py` | Watches camera and drone-upload directories | If camera media is used |
-| Vision inference | `python processing/visionInference.py` | Runs the configured vision ONNX model | If camera AI is used |
-| Acoustic ingestion | `python inputs/acousticStream.py` | Watches audio folders or records a live input | If acoustic monitoring is used |
-| Acoustic inference | `python processing/acousticInference.py` | Classifies prepared acoustic windows | If acoustic AI is used |
-| eDNA ingestion | `python inputs/ednaParser.py` | Validates and imports tabular/FASTA/FASTQ samples | If eDNA is used |
-| Genetic analytics | `python processing/geneticAnalytics.py` | Computes population-genetic indicators | If eDNA analytics is used |
-| Ollama | managed by its installer | Optional local narrative-generation backend | Optional |
+| Component              | Command                                             | Purpose                                                              | Required?                                     |
+| ---------------------- | --------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------- |
+| Database bootstrap     | `python database/dbManager.py`                    | Creates the schema and applies numbered migrations                   | Run once after installation and after updates |
+| API                    | `uvicorn api.main:app --host 0.0.0.0 --port 8000` | REST API, SSE, WebSocket alerts, report jobs, and compiled dashboard | Yes                                           |
+| GPS listener           | `python inputs/gpsTelemetry.py`                   | Consumes GPS MQTT messages                                           | If GPS devices are used                       |
+| Environmental listener | `python inputs/environmentalSensors.py`           | Consumes environmental MQTT messages                                 | If environmental sensors are used             |
+| Camera ingestion       | `python inputs/camera.py`                         | Watches camera and drone-upload directories                          | If camera media is used                       |
+| Vision inference       | `python processing/visionInference.py`            | Runs the configured vision ONNX model                                | If camera AI is used                          |
+| Acoustic ingestion     | `python inputs/acousticStream.py`                 | Watches audio folders or records a live input                        | If acoustic monitoring is used                |
+| Acoustic inference     | `python processing/acousticInference.py`          | Classifies prepared acoustic windows                                 | If acoustic AI is used                        |
+| eDNA ingestion         | `python inputs/ednaParser.py`                     | Validates and imports tabular/FASTA/FASTQ samples                    | If eDNA is used                               |
+| Genetic analytics      | `python processing/geneticAnalytics.py`           | Computes population-genetic indicators                               | If eDNA analytics is used                     |
+| Ollama                 | managed by its installer                            | Optional local narrative-generation backend                          | Optional                                      |
 
 The API report queue and WebSocket fan-out are in-process. Redis, Celery, and RQ are not required by the current implementation. Report job metadata is held in memory; completed reports are persisted in SQLite.
 
@@ -434,22 +434,22 @@ YAML indentation matters. Use spaces, not tabs.
 
 These values are site- or deployment-specific. Review all of them even if the current default is acceptable.
 
-| Key | What to set |
-|---|---|
-| `mqtt.brokerHost` | `localhost` if Mosquitto runs on this Pi, otherwise the broker hostname/IP |
-| `mqtt.port` | Broker port, normally `1883` without TLS |
-| `mqtt.topics.environmental` | Must match the topic published by environmental devices |
-| `mqtt.topics.telemetry` | Must match the topic published by GPS devices |
-| `storage.databasePath` | Permanent database location; default `~/icmis/inputs.db` is suitable |
-| `storage.spatialiteExtension` | `mod_spatialite.so` or the absolute ARM64 extension path |
-| `filePaths.cameraTraps` | Folder where camera-trap media arrives |
-| `filePaths.droneUploads` | Folder where drone media arrives |
-| `filePaths.quarantine` | Folder for invalid media |
-| `edna.projectID` | Your real study/project identifier |
-| `edna.studyAreaBounds.*` | The real minimum/maximum latitude and longitude of the study; do not leave global bounds for production |
-| `api.allowedOrigins` | Every separately hosted web origin allowed to call the API; remove example domains |
-| `api.host` / `api.port` | Keep `0.0.0.0:8000` for LAN access unless another service owns that port |
-| `.env: ICMIS_API_KEY` | Set a strong random key when API/WebSocket authentication is enabled |
+| Key                             | What to set                                                                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `mqtt.brokerHost`             | `localhost` if Mosquitto runs on this Pi, otherwise the broker hostname/IP                            |
+| `mqtt.port`                   | Broker port, normally `1883` without TLS                                                              |
+| `mqtt.topics.environmental`   | Must match the topic published by environmental devices                                                 |
+| `mqtt.topics.telemetry`       | Must match the topic published by GPS devices                                                           |
+| `storage.databasePath`        | Permanent database location; default `~/icmis/inputs.db` is suitable                                  |
+| `storage.spatialiteExtension` | `mod_spatialite.so` or the absolute ARM64 extension path                                              |
+| `filePaths.cameraTraps`       | Folder where camera-trap media arrives                                                                  |
+| `filePaths.droneUploads`      | Folder where drone media arrives                                                                        |
+| `filePaths.quarantine`        | Folder for invalid media                                                                                |
+| `edna.projectID`              | Your real study/project identifier                                                                      |
+| `edna.studyAreaBounds.*`      | The real minimum/maximum latitude and longitude of the study; do not leave global bounds for production |
+| `api.allowedOrigins`          | Every separately hosted web origin allowed to call the API; remove example domains                      |
+| `api.host` / `api.port`     | Keep `0.0.0.0:8000` for LAN access unless another service owns that port                              |
+| `.env: ICMIS_API_KEY`         | Set a strong random key when API/WebSocket authentication is enabled                                    |
 
 Generate an API key (not needed if you use `deploy/installServices.sh`, which creates `.env` and generates `ICMIS_API_KEY` for you; you can also rotate the key later under Pi Settings → Secrets):
 
@@ -473,15 +473,15 @@ Then set `requireAuth: true` for the routers that should require `X-API-Key`, an
 
 ### Values required when vision inference is enabled
 
-| Key | Required action |
-|---|---|
-| `vision.modelPath` | Copy your model to this location or change the path |
-| `vision.inputWidth`, `inputHeight`, `inputLayout` | Match the model input tensor |
-| `vision.outputFormat` | Match the detector output, or use `auto` only if supported correctly |
-| `vision.classNames` | List every class in exact model class-ID order |
-| `vision.threatClasses` | List only labels that should generate high-priority events |
-| `vision.inputScale`, `inputZeroPoint` | Required for quantized integer models; leave scale blank for floating-point inputs |
-| `vision.confidenceThreshold`, `iouThreshold` | Tune from validation results, not guesses |
+| Key                                                     | Required action                                                                    |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `vision.modelPath`                                    | Copy your model to this location or change the path                                |
+| `vision.inputWidth`, `inputHeight`, `inputLayout` | Match the model input tensor                                                       |
+| `vision.outputFormat`                                 | Match the detector output, or use `auto` only if supported correctly             |
+| `vision.classNames`                                   | List every class in exact model class-ID order                                     |
+| `vision.threatClasses`                                | List only labels that should generate high-priority events                         |
+| `vision.inputScale`, `inputZeroPoint`               | Required for quantized integer models; leave scale blank for floating-point inputs |
+| `vision.confidenceThreshold`, `iouThreshold`        | Tune from validation results, not guesses                                          |
 
 Example:
 
@@ -494,19 +494,19 @@ vision:
 
 ### Values required when acoustic monitoring is enabled
 
-| Key | Required action |
-|---|---|
-| `acoustic.defaultDeviceID` | Fallback device name for files not placed in a device subfolder |
-| `acoustic.liveEnabled` | `true` only when this Pi records a live device |
-| `acoustic.liveDeviceID` | Device ID matching an entry in `acoustic.devices` |
-| `acoustic.liveInputSampleRate`, `liveChannels` | Match the actual microphone/hydrophone |
-| `acoustic.inference.modelPath` | Acoustic ONNX model path |
-| `acoustic.inference.classMapPath` | CSV path with `index,display_name` headers |
-| `acoustic.inference.inputFrames`, `inputMelBands`, `inputLayout` | Match model input |
-| `acoustic.inference.wildlifeClasses` | Exact class-map labels treated as wildlife |
-| `acoustic.inference.threatClasses` | Exact class-map labels treated as threats |
-| `acoustic.inference.classThresholds` | Optional validated per-class thresholds |
-| `acoustic.devices` | Real device IDs, locations, coordinates, and altitude |
+| Key                                                                    | Required action                                                 |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `acoustic.defaultDeviceID`                                           | Fallback device name for files not placed in a device subfolder |
+| `acoustic.liveEnabled`                                               | `true` only when this Pi records a live device                |
+| `acoustic.liveDeviceID`                                              | Device ID matching an entry in `acoustic.devices`             |
+| `acoustic.liveInputSampleRate`, `liveChannels`                     | Match the actual microphone/hydrophone                          |
+| `acoustic.inference.modelPath`                                       | Acoustic ONNX model path                                        |
+| `acoustic.inference.classMapPath`                                    | CSV path with `index,display_name` headers                    |
+| `acoustic.inference.inputFrames`, `inputMelBands`, `inputLayout` | Match model input                                               |
+| `acoustic.inference.wildlifeClasses`                                 | Exact class-map labels treated as wildlife                      |
+| `acoustic.inference.threatClasses`                                   | Exact class-map labels treated as threats                       |
+| `acoustic.inference.classThresholds`                                 | Optional validated per-class thresholds                         |
+| `acoustic.devices`                                                   | Real device IDs, locations, coordinates, and altitude           |
 
 Example device:
 
@@ -530,15 +530,15 @@ Recorded `.wav`, `.flac`, and `.mp3` files must be put in `~/icmis/data/acoustic
 
 ### Values required when eDNA is enabled
 
-| Key | Required action |
-|---|---|
-| `edna.approvedLoci` | Map each scientific species name to approved markers/loci |
-| `edna.studyAreaBounds` | Real geographic bounds |
-| `edna.maxAlleleCount` | Match the expected ploidy/assay |
-| `edna.h3Resolution` | Choose spatial resolution; keep related API resolutions compatible |
-| `edna.geneticAnalysis.generationTimeYearsBySpecies` | Add the real generation time for each species |
-| `edna.geneticAnalysis.generationTimeYears` | Optional global fallback only if scientifically justified |
-| `criticalNeThreshold`, `vulnerableNeThreshold` | Set approved conservation thresholds |
+| Key                                                   | Required action                                                    |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `edna.approvedLoci`                                 | Map each scientific species name to approved markers/loci          |
+| `edna.studyAreaBounds`                              | Real geographic bounds                                             |
+| `edna.maxAlleleCount`                               | Match the expected ploidy/assay                                    |
+| `edna.h3Resolution`                                 | Choose spatial resolution; keep related API resolutions compatible |
+| `edna.geneticAnalysis.generationTimeYearsBySpecies` | Add the real generation time for each species                      |
+| `edna.geneticAnalysis.generationTimeYears`          | Optional global fallback only if scientifically justified          |
+| `criticalNeThreshold`, `vulnerableNeThreshold`    | Set approved conservation thresholds                               |
 
 Example:
 
@@ -925,10 +925,10 @@ sudo bash deploy/installServices.sh
 
 Optional flags:
 
-| Flag | Effect |
-|---|---|
-| `--mqtt-lan` | Writes `/etc/mosquitto/conf.d/icmis.conf` so field sensors on the LAN can publish to port 1883 (anonymous; private networks only) |
-| `--python /path/to/python` | Uses a different interpreter than `~/icmis/venv/bin/python` |
+| Flag                         | Effect                                                                                                                              |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `--mqtt-lan`               | Writes `/etc/mosquitto/conf.d/icmis.conf` so field sensors on the LAN can publish to port 1883 (anonymous; private networks only) |
+| `--python /path/to/python` | Uses a different interpreter than `~/icmis/venv/bin/python`                                                                       |
 
 The installer is idempotent, so re-run it after every `git pull`. It:
 
@@ -951,22 +951,22 @@ curl http://icmis.local:8000/api/v1/health
 
 ### What starts at boot
 
-| Unit | Kind | What it does |
-|---|---|---|
-| `icmis.target` | target | Groups every ICMIS unit; `systemctl restart icmis.target` restarts the whole stack |
-| `icmis-db.service` | one-shot | Runs `database/dbManager.py` (schema and migrations) before anything else touches the database |
-| `icmis-api.service` | continuous | `api/main.py`: REST, SSE, WebSockets, settings, and the compiled dashboard |
-| `icmis-worker@gpsTelemetry.service` | continuous | `inputs/gpsTelemetry.py` |
-| `icmis-worker@environmentalSensors.service` | continuous | `inputs/environmentalSensors.py` |
-| `icmis-worker@camera.service` | continuous | `inputs/camera.py` |
-| `icmis-worker@visionInference.service` | continuous | `processing/visionInference.py` |
-| `icmis-worker@acousticStream.service` | continuous | `inputs/acousticStream.py` |
-| `icmis-worker@acousticInference.service` | continuous | `processing/acousticInference.py` |
-| `icmis-worker@ednaParser.service` | continuous | `inputs/ednaParser.py` |
-| `icmis-worker@geneticAnalytics.service` | continuous | `processing/geneticAnalytics.py` |
-| `icmis-backup.timer` | schedule | Runs `deploy/backupDatabase.py` on `schedules.databaseBackup.onCalendar` (default 02:30 daily) and keeps `keepCopies` copies of the database and `config.yaml` |
-| `icmis-assessment.timer` | schedule | Runs `deploy/scheduledAssessment.py` on `schedules.riskAssessment.onCalendar` (default 06:00 daily) for every entry in `schedules.riskAssessment.targets` |
-| `icmis-apply.path` | watcher | Watches `~/icmis/state` and starts the root-only `icmis-apply.service` when the dashboard or app asks for settings to be applied |
+| Unit                                          | Kind       | What it does                                                                                                                                                           |
+| --------------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `icmis.target`                              | target     | Groups every ICMIS unit; `systemctl restart icmis.target` restarts the whole stack                                                                                   |
+| `icmis-db.service`                          | one-shot   | Runs `database/dbManager.py` (schema and migrations) before anything else touches the database                                                                       |
+| `icmis-api.service`                         | continuous | `api/main.py`: REST, SSE, WebSockets, settings, and the compiled dashboard                                                                                           |
+| `icmis-worker@gpsTelemetry.service`         | continuous | `inputs/gpsTelemetry.py`                                                                                                                                             |
+| `icmis-worker@environmentalSensors.service` | continuous | `inputs/environmentalSensors.py`                                                                                                                                     |
+| `icmis-worker@camera.service`               | continuous | `inputs/camera.py`                                                                                                                                                   |
+| `icmis-worker@visionInference.service`      | continuous | `processing/visionInference.py`                                                                                                                                      |
+| `icmis-worker@acousticStream.service`       | continuous | `inputs/acousticStream.py`                                                                                                                                           |
+| `icmis-worker@acousticInference.service`    | continuous | `processing/acousticInference.py`                                                                                                                                    |
+| `icmis-worker@ednaParser.service`           | continuous | `inputs/ednaParser.py`                                                                                                                                               |
+| `icmis-worker@geneticAnalytics.service`     | continuous | `processing/geneticAnalytics.py`                                                                                                                                     |
+| `icmis-backup.timer`                        | schedule   | Runs `deploy/backupDatabase.py` on `schedules.databaseBackup.onCalendar` (default 02:30 daily) and keeps `keepCopies` copies of the database and `config.yaml` |
+| `icmis-assessment.timer`                    | schedule   | Runs `deploy/scheduledAssessment.py` on `schedules.riskAssessment.onCalendar` (default 06:00 daily) for every entry in `schedules.riskAssessment.targets`        |
+| `icmis-apply.path`                          | watcher    | Watches `~/icmis/state` and starts the root-only `icmis-apply.service` when the dashboard or app asks for settings to be applied                                   |
 
 Continuous units use `Restart=always`, so a crashed worker restarts after 15 seconds (the API after 10). Timers use `Persistent=true`: if the Pi was off at 02:30, the backup runs as soon as it boots.
 
@@ -1018,19 +1018,19 @@ The settings router is registered with `requireAuth: true` in `api.routerModules
 
 ### Settings you can change from the apps
 
-| Group | Keys |
-|---|---|
-| Pi & network | `system.hostname`, `system.timezone`, `mqtt.brokerHost`, `mqtt.port`, `mqtt.topics.environmental`, `mqtt.topics.telemetry` |
-| Programs | `services.<worker>.enabled` for all eight workers |
-| Schedules | `schedules.databaseBackup.*` (enabled, onCalendar, keepCopies, directory) and `schedules.riskAssessment.*` (enabled, onCalendar, defaultLookbackDays, targets) |
-| Storage | `storage.databasePath`, `filePaths.cameraTraps`, `filePaths.droneUploads`, `filePaths.quarantine`, `acoustic.inputDirectory`, `edna.inputDirectory`, `edna.quarantineDirectory` |
-| Sensors & camera | `validation.batteryLowThreshold`, `camera.pollingIntervalSec` |
-| Vision model | `vision.modelPath`, input width and height, confidence and IoU thresholds, threads, `classNames`, `threatClasses` |
-| Acoustic monitoring | live input (enabled, device, sample rate, channels), `acoustic.devices`, and the model, class map, thresholds, and class lists under `acoustic.inference` |
-| eDNA & genetics | `edna.projectID`, `edna.studyAreaBounds`, `edna.approvedLoci`, and the `edna.geneticAnalysis` interval, Ne thresholds, and generation times |
-| Risk engine | `aiEngine.domainWeights`, species domain weights, the critical CRI and Ne thresholds, `rangerOutposts` |
-| AI language model | routing mode, local backend, Ollama model and URL, GGUF path, threads, temperature and RAM limits, cloud provider and model names |
-| Server & alerts | `api.allowedOrigins`, `api.enableDocs`, `api.logLevel`, `api.llmWarmUp`, the telemetry webhook and AI wake-up settings, the WebSocket CRI thresholds, `forwardTelemetry`, `requireToken` |
+| Group               | Keys                                                                                                                                                                                                 |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pi & network        | `system.hostname`, `system.timezone`, `mqtt.brokerHost`, `mqtt.port`, `mqtt.topics.environmental`, `mqtt.topics.telemetry`                                                               |
+| Programs            | `services.<worker>.enabled` for all eight workers                                                                                                                                                  |
+| Schedules           | `schedules.databaseBackup.*` (enabled, onCalendar, keepCopies, directory) and `schedules.riskAssessment.*` (enabled, onCalendar, defaultLookbackDays, targets)                                   |
+| Storage             | `storage.databasePath`, `filePaths.cameraTraps`, `filePaths.droneUploads`, `filePaths.quarantine`, `acoustic.inputDirectory`, `edna.inputDirectory`, `edna.quarantineDirectory`        |
+| Sensors & camera    | `validation.batteryLowThreshold`, `camera.pollingIntervalSec`                                                                                                                                    |
+| Vision model        | `vision.modelPath`, input width and height, confidence and IoU thresholds, threads, `classNames`, `threatClasses`                                                                              |
+| Acoustic monitoring | live input (enabled, device, sample rate, channels), `acoustic.devices`, and the model, class map, thresholds, and class lists under `acoustic.inference`                                        |
+| eDNA & genetics     | `edna.projectID`, `edna.studyAreaBounds`, `edna.approvedLoci`, and the `edna.geneticAnalysis` interval, Ne thresholds, and generation times                                                  |
+| Risk engine         | `aiEngine.domainWeights`, species domain weights, the critical CRI and Ne thresholds, `rangerOutposts`                                                                                           |
+| AI language model   | routing mode, local backend, Ollama model and URL, GGUF path, threads, temperature and RAM limits, cloud provider and model names                                                                    |
+| Server & alerts     | `api.allowedOrigins`, `api.enableDocs`, `api.logLevel`, `api.llmWarmUp`, the telemetry webhook and AI wake-up settings, the WebSocket CRI thresholds, `forwardTelemetry`, `requireToken` |
 
 `onCalendar` uses systemd calendar syntax, for example `*-*-* 02:30:00` (daily), `Mon *-*-* 06:00:00` (weekly), or `*-*-* *:00/15:00` (every 15 minutes). Check an expression on the Pi with `systemd-analyze calendar "*-*-* 02:30:00"`.
 
@@ -1038,14 +1038,14 @@ The settings router is registered with `requireAuth: true` in `api.routerModules
 
 These are rarely changed, or changing them remotely could lock you out, so they are intentionally **not** in the Settings UI yet:
 
-| Key | Why it is not remote-editable yet |
-|---|---|
-| `storage.spatialiteExtension` | A wrong value stops the database from opening, so the API could not start and fix it |
-| `api.host`, `api.port` | Changing them would disconnect every client from the API they are talking to |
-| `*.requireAuth` on each router | Turning auth off remotely is a security risk; turning it on without a key locks the UI out |
-| `settingsApi.*` | The settings system's own state, backup, and pre-flight folders and limits |
-| `database.*`, `emaAlphas`, `validation` (other than battery), timeouts, queue sizes, and model tensor names | Advanced tuning that should be tested on a bench first |
-| Mosquitto users and TLS | Files under `/etc/mosquitto/` (outside the project) |
+| Key                                                                                                               | Why it is not remote-editable yet                                                          |
+| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `storage.spatialiteExtension`                                                                                   | A wrong value stops the database from opening, so the API could not start and fix it       |
+| `api.host`, `api.port`                                                                                        | Changing them would disconnect every client from the API they are talking to               |
+| `*.requireAuth` on each router                                                                                  | Turning auth off remotely is a security risk; turning it on without a key locks the UI out |
+| `settingsApi.*`                                                                                                 | The settings system's own state, backup, and pre-flight folders and limits                 |
+| `database.*`, `emaAlphas`, `validation` (other than battery), timeouts, queue sizes, and model tensor names | Advanced tuning that should be tested on a bench first                                     |
+| Mosquitto users and TLS                                                                                           | Files under `/etc/mosquitto/` (outside the project)                                      |
 
 Edit these with `nano config.yaml`, then run `sudo systemctl restart icmis.target`.
 
@@ -1071,14 +1071,14 @@ To stop ICMIS starting at boot, run `sudo systemctl disable icmis.target`. To re
 
 Assuming the Pi IP is `192.168.1.100`:
 
-| Resource | URL |
-|---|---|
-| Dashboard | `http://192.168.1.100:8000/` |
-| Health | `http://192.168.1.100:8000/api/v1/health` |
-| API docs | `http://192.168.1.100:8000/docs` |
-| Telemetry data | `http://192.168.1.100:8000/api/v1/telemetry/data` |
-| SSE telemetry | `http://192.168.1.100:8000/api/v1/telemetry/stream` |
-| WebSocket | `ws://192.168.1.100:8000/api/v1/ws/alerts/<client_id>` |
+| Resource       | URL                                                      |
+| -------------- | -------------------------------------------------------- |
+| Dashboard      | `http://192.168.1.100:8000/`                           |
+| Health         | `http://192.168.1.100:8000/api/v1/health`              |
+| API docs       | `http://192.168.1.100:8000/docs`                       |
+| Telemetry data | `http://192.168.1.100:8000/api/v1/telemetry/data`      |
+| SSE telemetry  | `http://192.168.1.100:8000/api/v1/telemetry/stream`    |
+| WebSocket      | `ws://192.168.1.100:8000/api/v1/ws/alerts/<client_id>` |
 
 Health check:
 
